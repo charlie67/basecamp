@@ -13,7 +13,7 @@ public record CreateWorkoutRequest(
         String type,
         Instant startDate,
         Instant endDate,
-        long durationSeconds,
+        double durationSeconds,
         Double distanceM,
         Double elevationGainM,
         Double elevationLossM,
