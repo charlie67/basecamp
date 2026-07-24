@@ -6,6 +6,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -24,7 +25,10 @@ import java.util.UUID;
  * Workout summary. One row per HealthKit workout, upsert key {@code healthkit_uuid}.
  */
 @Entity
-@Table(name = "workout")
+@Table(
+				name = "workout",
+				uniqueConstraints = @UniqueConstraint(name = "uq_workout_type_start", columnNames = {"type", "start_date"})
+)
 @Getter
 @Setter
 @Builder

@@ -14,7 +14,9 @@
 
 	<properties>
 		<cucumber.version>7.20.1</cucumber.version>
-		<testcontainers.version>1.20.6</testcontainers.version>
+		<testcontainers.version>2.0.2</testcontainers.version>
+		<testcontainers-postgresql.version>1.21.4</testcontainers-postgresql.version>
+		<httpclient.version>4.5.14</httpclient.version>
 	</properties>
 
 	<dependencies>
@@ -34,8 +36,20 @@
 		</dependency>
 		<dependency>
 			<groupId>org.testcontainers</groupId>
-			<artifactId>postgresql</artifactId>
+			<artifactId>testcontainers</artifactId>
 			<version>${testcontainers.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>postgresql</artifactId>
+			<version>${testcontainers-postgresql.version}</version>
+		</dependency>
+
+		<!-- Generic HTTP steps drive the app over the wire, mirroring the shopping-list harness. -->
+		<dependency>
+			<groupId>org.apache.httpcomponents</groupId>
+			<artifactId>httpclient</artifactId>
+			<version>${httpclient.version}</version>
 		</dependency>
 
 		<dependency>

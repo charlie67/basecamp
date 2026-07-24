@@ -1,0 +1,106 @@
+package to.charlie.basecamp.domain.service;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import to.charlie.basecamp.domain.mapper.TrackMapper;
+import to.charlie.basecamp.domain.mapper.WorkoutMapper;
+import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
+import to.charlie.basecamp.domain.model.dto.workout.SeriesPoint;
+import to.charlie.basecamp.domain.model.dto.workout.StatisticSummary;
+import to.charlie.basecamp.domain.model.dto.workout.TrackChunkRequest;
+import to.charlie.basecamp.domain.model.dto.workout.WorkoutEvent;
+import to.charlie.basecamp.domain.model.entity.RoutePointEntity;
+import to.charlie.basecamp.domain.model.entity.SeriesPointEntity;
+import to.charlie.basecamp.domain.model.entity.TrackChunkEntity;
+import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
+import to.charlie.basecamp.domain.model.entity.WorkoutEventEntity;
+import to.charlie.basecamp.domain.model.entity.WorkoutStatisticEntity;
+import to.charlie.basecamp.domain.model.entity.WorkoutStatisticId;
+import to.charlie.basecamp.infrastructure.dal.dao.TrackDao;
+import to.charlie.basecamp.infrastructure.dal.dao.WorkoutDao;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * Application service for HealthKit workout ingest: maps the REST DTOs onto the
+ * persistence model and delegates the upsert / chunk-append flows to the DAOs.
+ */
+@Service
+@RequiredArgsConstructor
+public class WorkoutService {
+
+	private final WorkoutMapper workoutMapper;
+	private final TrackMapper trackMapper;
+	private final WorkoutDao workoutDao;
+	private final TrackDao trackDao;
+
+	public WorkoutEntity createWorkout(final CreateWorkoutRequest request) {
+		final WorkoutEntity workout = workoutMapper.toEntity(request);
+		final List<WorkoutStatisticEntity> statistics = toStatisticEntities(request.statistics());
+		final List<WorkoutEventEntity> events = toEventEntities(request.events());
+		return workoutDao.upsert(workout, statistics, events);
+	}
+
+	/**
+	 * Store one track chunk (route + series + events) for a workout and return it.
+	 */
+	public TrackChunkEntity saveTrackChunk(final UUID workoutId, final TrackChunkRequest request) {
+		final TrackChunkEntity chunk = trackMapper.toChunkEntity(request);
+		final List<RoutePointEntity> routePoints = toRoutePointEntities(request);
+		final List<SeriesPointEntity> seriesPoints = toSeriesPointEntities(request);
+		final List<WorkoutEventEntity> events = toEventEntities(request.events());
+		return trackDao.saveChunk(workoutId, chunk, routePoints, seriesPoints, events);
+	}
+
+	private List<WorkoutStatisticEntity> toStatisticEntities(final Map<String, StatisticSummary> statistics) {
+		final List<WorkoutStatisticEntity> entities = new ArrayList<>();
+		if (statistics == null) {
+			return entities;
+		}
+		statistics.forEach((name, summary) -> {
+			final WorkoutStatisticEntity entity = workoutMapper.toStatisticEntity(summary);
+			entity.setId(new WorkoutStatisticId(null, name));
+			entities.add(entity);
+		});
+		return entities;
+	}
+
+	private List<WorkoutEventEntity> toEventEntities(final List<WorkoutEvent> events) {
+		final List<WorkoutEventEntity> entities = new ArrayList<>();
+		if (events == null) {
+			return entities;
+		}
+		events.forEach(event -> entities.add(workoutMapper.toEventEntity(event)));
+		return entities;
+	}
+
+	private List<RoutePointEntity> toRoutePointEntities(final TrackChunkRequest request) {
+		final List<RoutePointEntity> entities = new ArrayList<>();
+		if (request.route() == null) {
+			return entities;
+		}
+		request.route().forEach(point -> entities.add(trackMapper.toRoutePointEntity(point)));
+		return entities;
+	}
+
+	private List<SeriesPointEntity> toSeriesPointEntities(final TrackChunkRequest request) {
+		final List<SeriesPointEntity> entities = new ArrayList<>();
+		if (request.series() == null) {
+			return entities;
+		}
+		request.series().forEach((metric, points) -> {
+			if (points == null) {
+				return;
+			}
+			for (final SeriesPoint point : points) {
+				final SeriesPointEntity entity = trackMapper.toSeriesPointEntity(point);
+				entity.setMetric(metric);
+				entities.add(entity);
+			}
+		});
+		return entities;
+	}
+}

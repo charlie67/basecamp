@@ -12,8 +12,10 @@ import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutResponse;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkRequest;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkResponse;
+import to.charlie.basecamp.domain.model.entity.TrackChunkEntity;
+import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
+import to.charlie.basecamp.domain.service.WorkoutService;
 
-import java.time.Instant;
 import java.util.UUID;
 
 import static org.springframework.http.HttpStatus.CREATED;
@@ -24,28 +26,32 @@ import static org.springframework.http.HttpStatus.CREATED;
 @RequiredArgsConstructor
 public class WorkoutController {
 
+	private final WorkoutService workoutService;
+
 	@PostMapping
 	public ResponseEntity<CreateWorkoutResponse> createWorkout(@RequestBody final CreateWorkoutRequest request) {
-		log.info("POST /workouts - adding new workout");
-		final var x = ResponseEntity
+		log.info("POST /workouts - upserting workout healthkit_uuid={}", request.healthkitUuid());
+		final WorkoutEntity workout = workoutService.createWorkout(request);
+
+		return ResponseEntity
 						.status(CREATED)
 						.body(CreateWorkoutResponse.builder()
-										.id(UUID.randomUUID())
+										.id(workout.getId())
 										.healthkitUuid(request.healthkitUuid())
-										.contentHash(request.contentHash())
-										.updatedAt(Instant.now())
+										.contentHash(workout.getContentHash())
+										.updatedAt(workout.getUpdatedAt())
 										.build());
-
-		return x;
 	}
 
 	@PostMapping("/{id}/track")
 	public ResponseEntity<TrackChunkResponse> trackChunk(@PathVariable final String id, @RequestBody final TrackChunkRequest request) {
-		log.info("POST /workouts/{}/track - adding new track", id);
+		log.info("POST /workouts/{}/track - saving chunk sequence={}", id, request.sequence());
+		final TrackChunkEntity chunk = workoutService.saveTrackChunk(UUID.fromString(id), request);
+
 		return ResponseEntity
 						.ok(TrackChunkResponse.builder()
 										.workoutId(id)
-										.sequence(request.sequence())
+										.sequence(chunk.getSequence())
 										.received(true)
 										.build());
 	}
