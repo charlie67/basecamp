@@ -1,11 +1,3 @@
-# syntax=docker/dockerfile:1
-#
-# Copy-only image: it assembles pre-built artifacts, it does NOT build anything.
-# Build these first, on the host, then build the image:
-#   ./mvnw -pl application -am clean package -DskipTests
-#   (cd frontend && npm ci && npm run build)
-#   docker build -t basecamp:latest .
-
 FROM eclipse-temurin:25-jre AS runtime
 
 # Caddy is a static Go binary; copy it out of the official image.
@@ -27,12 +19,6 @@ COPY frontend/dist /srv/www
 COPY docker/Caddyfile /etc/caddy/Caddyfile
 COPY docker/start.sh /app/start.sh
 RUN chmod +x /app/start.sh
-
-# Point the backend at the database service by default (override at runtime).
-ENV SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/basecamp \
-    SPRING_DATASOURCE_USERNAME=basecamp \
-    SPRING_DATASOURCE_PASSWORD=basecamp \
-    JAVA_OPTS=""
 
 # Caddy serves the whole app on :80. The backend's :8080 stays internal.
 EXPOSE 80
