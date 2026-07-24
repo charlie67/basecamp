@@ -5,6 +5,12 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - tagging
+    types:
+      - completed
 
 jobs:
   build:
@@ -13,23 +19,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-
-    # The application module's context-load test boots the full Spring context,
-    # which needs a live Postgres. Provision one matching application.properties.
-    services:
-      postgres:
-        image: postgres:18.2-alpine3.23
-        env:
-          POSTGRES_USER: basecamp
-          POSTGRES_PASSWORD: basecamp
-          POSTGRES_DB: basecamp
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U basecamp -d basecamp"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - name: Checkout

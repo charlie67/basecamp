@@ -1,0 +1,23 @@
+name: Tagging
+
+on:
+  workflow_dispatch:
+  push:
+    branches: 'master'
+
+jobs:
+  build:
+    name: Bump tag
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Create an incremental release
+      uses: aurestic/incrementarl-create-release@master
+      with:
+        message: Bump version
+        prev_tag: '0.0.0'
+        update_odoo_module_version: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
