@@ -1,0 +1,21 @@
+# Build context excludes — keep the image build fast and clean.
+# NOTE: this image copies PRE-BUILT artifacts, so target/ and frontend/dist
+# are deliberately NOT excluded.
+
+# Git
+.git
+.gitignore
+
+# Node deps (the built bundle in frontend/dist IS needed and kept)
+frontend/node_modules/
+frontend/.idea/
+
+# Local Postgres data (huge, and never belongs in an image)
+docker/data/
+
+# IDE / OS cruft
+.idea/
+.run/
+**/*.iml
+.DS_Store
+

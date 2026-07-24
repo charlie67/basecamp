@@ -1,0 +1,26 @@
+# Caddy fronts the whole app inside the container.
+#   /api/*  -> Spring Boot backend on localhost:8080 (with the /api prefix stripped,
+#             matching the Vite dev proxy so the backend sees /workouts, not /api/workouts)
+#   /*      -> the static React build, with SPA history fallback to index.html
+{
+	admin off
+	# No TLS inside the container; TLS terminates upstream (host / load balancer).
+	auto_https off
+}
+
+:80 {
+	encode gzip zstd
+
+	# API traffic -> backend. strip_prefix removes the leading /api segment.
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy localhost:8080
+	}
+
+	# Everything else -> the static frontend build.
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+}
