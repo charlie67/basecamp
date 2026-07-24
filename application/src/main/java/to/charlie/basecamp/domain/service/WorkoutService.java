@@ -1,6 +1,8 @@
 package to.charlie.basecamp.domain.service;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import to.charlie.basecamp.domain.mapper.TrackMapper;
 import to.charlie.basecamp.domain.mapper.WorkoutMapper;
@@ -36,6 +38,10 @@ public class WorkoutService {
 	private final TrackMapper trackMapper;
 	private final WorkoutDao workoutDao;
 	private final TrackDao trackDao;
+
+	public Page<WorkoutEntity> getWorkouts(final Pageable pageable) {
+		return workoutDao.findAllOrdered(pageable);
+	}
 
 	public WorkoutEntity createWorkout(final CreateWorkoutRequest request) {
 		final WorkoutEntity workout = workoutMapper.toEntity(request);

@@ -1,6 +1,8 @@
 package to.charlie.basecamp.infrastructure.dal.dao;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import to.charlie.basecamp.domain.model.entity.TrackStatus;
@@ -22,6 +24,11 @@ public class WorkoutDao {
 	private final WorkoutRepository workoutRepository;
 	private final WorkoutStatisticRepository workoutStatisticRepository;
 	private final WorkoutEventRepository workoutEventRepository;
+
+	@Transactional(readOnly = true)
+	public Page<WorkoutEntity> findAllOrdered(final Pageable pageable) {
+		return workoutRepository.findAllByOrderByEndDateDesc(pageable);
+	}
 
 	@Transactional
 	public WorkoutEntity upsert(final WorkoutEntity workout,

@@ -1,5 +1,3 @@
--- Basecamp initial schema: HealthKit workout ingest (summary + chunked track).
-
 create table workout (
     id                       uuid             primary key,
     healthkit_uuid           uuid             not null unique,

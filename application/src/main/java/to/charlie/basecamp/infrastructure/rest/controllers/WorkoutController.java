@@ -2,16 +2,21 @@ package to.charlie.basecamp.infrastructure.rest.controllers;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import to.charlie.basecamp.domain.model.dto.common.PagedResponse;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutResponse;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkRequest;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkResponse;
+import to.charlie.basecamp.domain.model.dto.workout.WorkoutSummaryResponse;
 import to.charlie.basecamp.domain.model.entity.TrackChunkEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
 import to.charlie.basecamp.domain.service.WorkoutService;
@@ -27,6 +32,25 @@ import static org.springframework.http.HttpStatus.CREATED;
 public class WorkoutController {
 
 	private final WorkoutService workoutService;
+
+
+	@GetMapping
+	public ResponseEntity<PagedResponse<WorkoutSummaryResponse>> getWorkouts(
+					@RequestParam(defaultValue = "0") final int page) {
+		log.info("GET /workouts - listing workouts page={}", page);
+		final int safePage = Math.max(page, 0);
+
+		final PagedResponse<WorkoutSummaryResponse> workouts = PagedResponse.from(
+						workoutService.getWorkouts(PageRequest.of(safePage, 20)),
+						workout -> WorkoutSummaryResponse.builder()
+										.id(workout.getId())
+										.type(workout.getType())
+										.startDate(workout.getStartDate())
+										.endDate(workout.getEndDate())
+										.build());
+
+		return ResponseEntity.ok(workouts);
+	}
 
 	@PostMapping
 	public ResponseEntity<CreateWorkoutResponse> createWorkout(@RequestBody final CreateWorkoutRequest request) {
