@@ -12,6 +12,19 @@ echo "Starting backend (Spring Boot) ..."
 java ${JAVA_OPTS:-} -jar /app/app.jar &
 BACKEND_PID=$!
 
+# Inject the frontend's runtime config from environment variables. This
+# overwrites the empty placeholder baked into the static bundle, letting one
+# image be reconfigured per-deployment without rebuilding the JS. The app reads
+# these via window.__APP_CONFIG__ (see frontend/src/config.ts).
+echo "Writing frontend runtime config ..."
+cat > /srv/www/config.js <<EOF
+window.__APP_CONFIG__ = {
+  authAuthority: "${FRONTEND_AUTH_AUTHORITY:-}",
+  authClientId: "${FRONTEND_AUTH_CLIENT_ID:-}",
+  apiBase: "${FRONTEND_API_BASE:-/api}"
+};
+EOF
+
 echo "Starting Caddy ..."
 caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
 CADDY_PID=$!

@@ -1,4 +1,4 @@
-package to.charlie.basecamp.domain.mapper;
+package to.charlie.basecamp.domain.model.mapper;
 
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useAuth } from 'react-oidc-context';
 import { useWorkoutStore } from '../store/workoutStore.ts';
 
 function formatTime(value: string | null): string {
@@ -10,6 +11,7 @@ function formatTime(value: string | null): string {
 export default function WorkoutsPage() {
   const { workouts, totalElements, hasMore, loading, error, loadMore } =
     useWorkoutStore();
+  const auth = useAuth();
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   // Initial load.
@@ -37,11 +39,23 @@ export default function WorkoutsPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-2xl px-4 py-10">
-        <header className="mb-6 flex items-center justify-between">
+        <header className="mb-6 flex items-center justify-between gap-4">
           <h1 className="text-2xl font-semibold">Workouts</h1>
-          {totalElements > 0 && (
-            <span className="text-sm text-slate-400">{totalElements} total</span>
-          )}
+          <div className="flex items-center gap-4">
+            {totalElements > 0 && (
+              <span className="text-sm text-slate-400">{totalElements} total</span>
+            )}
+            {/* Full RP-initiated logout: this ends the Authentik SSO session as
+                well as the local one, so signing back in needs real credentials.
+                `signoutRedirect` clears the stored user on its way out. */}
+            <button
+              type="button"
+              onClick={() => void auth.signoutRedirect()}
+              className="rounded border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-slate-600 hover:text-slate-100"
+            >
+              Sign out
+            </button>
+          </div>
         </header>
 
         {error && (

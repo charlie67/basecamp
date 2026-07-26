@@ -1,16 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from 'react-oidc-context';
 import './index.css';
-import WorkoutsPage from './pages/WorkoutsPage.tsx';
+import App from './App.tsx';
+import { oidcConfig } from './auth/oidcConfig.ts';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
-      <Routes>
-        <Route path="/workouts" element={<WorkoutsPage />} />
-        <Route path="*" element={<Navigate to="/workouts" replace />} />
-      </Routes>
-    </BrowserRouter>
+    <AuthProvider {...oidcConfig}>
+      <App />
+    </AuthProvider>
   </StrictMode>,
 );

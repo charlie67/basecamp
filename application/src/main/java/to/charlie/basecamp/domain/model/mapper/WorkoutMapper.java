@@ -1,4 +1,4 @@
-package to.charlie.basecamp.domain.mapper;
+package to.charlie.basecamp.domain.model.mapper;
 
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
@@ -45,7 +45,7 @@ public interface WorkoutMapper {
 	@Mapping(target = "endAt", source = "end")
 	WorkoutEventEntity toEventEntity(WorkoutEvent event);
 
-	default UUID toUuid(String value) {
+	default UUID toUuid(final String value) {
 		return value == null ? null : UUID.fromString(value);
 	}
 }

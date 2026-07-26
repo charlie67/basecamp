@@ -22,4 +22,4 @@ target/
 
 ### VS Code ###
 .vscode/
-/docker/data/db/
+/docker/data/

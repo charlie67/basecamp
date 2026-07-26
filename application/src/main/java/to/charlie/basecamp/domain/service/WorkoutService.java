@@ -4,8 +4,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import to.charlie.basecamp.domain.mapper.TrackMapper;
-import to.charlie.basecamp.domain.mapper.WorkoutMapper;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
 import to.charlie.basecamp.domain.model.dto.workout.SeriesPoint;
 import to.charlie.basecamp.domain.model.dto.workout.StatisticSummary;
@@ -18,6 +16,8 @@ import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutEventEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutStatisticEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutStatisticId;
+import to.charlie.basecamp.domain.model.mapper.TrackMapper;
+import to.charlie.basecamp.domain.model.mapper.WorkoutMapper;
 import to.charlie.basecamp.infrastructure.dal.dao.TrackDao;
 import to.charlie.basecamp.infrastructure.dal.dao.WorkoutDao;
 

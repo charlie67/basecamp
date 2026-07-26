@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Basecamp Workouts</title>
+    <!-- Runtime config (window.__APP_CONFIG__). Loaded before the app module so
+         values are available at startup. Overwritten in the container from env
+         vars; empty in local dev (see frontend/.env.local). -->
+    <script src="/config.js"></script>
   </head>
   <body>
     <div id="root"></div>

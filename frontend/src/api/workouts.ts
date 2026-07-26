@@ -1,3 +1,6 @@
+import { getAccessToken } from '../auth/token.ts';
+import { appConfig } from '../config.ts';
+
 export interface Workout {
   id: string;
   type: string | null;
@@ -16,14 +19,20 @@ export interface PagedResponse<T> {
 
 // Requests go through the Vite dev-server proxy (see vite.config.ts), which
 // forwards /api/* to the backend same-origin — so no CORS is involved.
-const API_BASE = import.meta.env.VITE_API_BASE ?? '/api';
+const API_BASE = appConfig.apiBase;
 
 export async function fetchWorkouts(
   page: number,
   size: number,
 ): Promise<PagedResponse<Workout>> {
   const params = new URLSearchParams({ page: String(page), size: String(size) });
-  const response = await fetch(`${API_BASE}/workouts?${params}`);
+  const token = getAccessToken();
+  const response = await fetch(`${API_BASE}/workouts?${params}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (response.status === 401) {
+    throw new Error('Your session expired — reload the page to sign in again.');
+  }
   if (!response.ok) {
     throw new Error(`Failed to load workouts (${response.status})`);
   }

@@ -1,0 +1,73 @@
+# login:
+# username: akadmin
+# password: 1234
+services:
+
+  authentik-db:
+    container_name: authentik-db
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: authentik
+      POSTGRES_DB: authentik
+      POSTGRES_PASSWORD: authentik
+    volumes:
+      - ./data/authentik/db:/var/lib/postgresql/data
+
+  authentik-redis:
+    container_name: authentik-redis
+    image: redis:alpine
+    command: --save 60 1 --loglevel warning
+    restart: unless-stopped
+    volumes:
+      - ./data/authentik/redis:/data
+
+  authentik-server:
+    container_name: authentik-server
+    image: ghcr.io/goauthentik/server:2026.5.4
+    restart: unless-stopped
+    command: server
+    environment:
+      AUTHENTIK_SECRET_KEY: bbyF6G/zYngbK4Y+rAeLbOBkPc9Ba7KiPyXwteWoEf6bKBqN68GqFfchGvmI5099SGB2Tr6fiXgEhdXG%
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: authentik
+    volumes:
+      - ./data/authentik/media:/media
+      - ./data/authentik/custom-templates:/templates
+    ports:
+      - "9000:9000"
+      - "9443:9443"
+    depends_on:
+      authentik-db:
+        condition: service_healthy
+      authentik-redis:
+        condition: service_healthy
+
+  authentik-worker:
+    container_name: authentik-worker
+    image: ghcr.io/goauthentik/server:2026.5.4
+    restart: unless-stopped
+    command: worker
+    # The worker runs privileged tasks (cert rotation, outposts) and needs root
+    # plus the docker socket per Authentik's reference deployment.
+    user: root
+    environment:
+      AUTHENTIK_SECRET_KEY: bbyF6G/zYngbK4Y+rAeLbOBkPc9Ba7KiPyXwteWoEf6bKBqN68GqFfchGvmI5099SGB2Tr6fiXgEhdXG%
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: authentik
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/authentik/media:/media
+      - ./data/authentik/certs:/certs
+      - ./data/authentik/custom-templates:/templates
+    depends_on:
+      authentik-db:
+        condition: service_healthy
+      authentik-redis:
+        condition: service_healthy
