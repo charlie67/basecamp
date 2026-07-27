@@ -1,8 +1,11 @@
 import {useCallback, useEffect, useRef} from 'react';
 import {BrowserRouter, Navigate, Route, Routes} from 'react-router-dom';
 import {useAuth} from 'react-oidc-context';
+import Layout from './components/Layout.tsx';
 import WorkoutsPage from './pages/WorkoutsPage.tsx';
+import MapPage from './pages/MapPage.tsx';
 import {setAccessToken} from './auth/token.ts';
+import {appConfig} from './config.ts';
 
 function Splash({label, onRetry}: { label: string; onRetry?: () => void }) {
     return (
@@ -21,28 +24,31 @@ function Splash({label, onRetry}: { label: string; onRetry?: () => void }) {
     );
 }
 
-export default function App() {
+function AppRoutes() {
+    return (
+        <BrowserRouter>
+            <Routes>
+                <Route element={<Layout/>}>
+                    <Route path="/workouts" element={<WorkoutsPage/>}/>
+                    <Route path="/map" element={<MapPage/>}/>
+                </Route>
+                <Route path="*" element={<Navigate to="/workouts" replace/>}/>
+            </Routes>
+        </BrowserRouter>
+    );
+}
+
+function AuthGate() {
     const auth = useAuth();
-    // Guards the automatic redirect so it fires at most once per page load:
-    // without it, StrictMode's double-effect starts two sign-ins (the first one's
-    // PKCE state is orphaned), and an error state would retry in a loop.
     const startedSignin = useRef(false);
 
     setAccessToken(auth.user?.access_token ?? null);
 
     const signIn = useCallback(async () => {
-        // Discard any expired/failed session first. A stale user in localStorage is
-        // what pushes oidc-client-ts into a `prompt=none` silent renew, which
-        // Authentik rejects with `login_required` ("The Authorization Server
-        // requires End-User authentication"); removing it forces a clean
-        // interactive login instead.
         await auth.removeUser();
         await auth.signinRedirect();
     }, [auth]);
 
-    // Send unauthenticated visitors to Authentik's login. This deliberately runs
-    // in the error case too, so a failed silent renew recovers by asking the user
-    // to log in again rather than stranding the app on an error screen.
     useEffect(() => {
         if (auth.isLoading || auth.isAuthenticated || startedSignin.current) {
             return;
@@ -56,10 +62,6 @@ export default function App() {
     }
 
     if (!auth.isAuthenticated) {
-        // The automatic attempt above has already run and only fires once, so both
-        // branches need a manual escape hatch: an error means the redirect itself
-        // failed, and a non-error means we are either mid-navigation (this splash
-        // disappears on its own) or the session ended without a page change.
         return (
             <Splash
                 label={auth.error ? `Sign-in failed: ${auth.error.message}` : 'Redirecting to sign in…'}
@@ -68,12 +70,12 @@ export default function App() {
         );
     }
 
-    return (
-        <BrowserRouter>
-            <Routes>
-                <Route path="/workouts" element={<WorkoutsPage/>}/>
-                <Route path="*" element={<Navigate to="/workouts" replace/>}/>
-            </Routes>
-        </BrowserRouter>
-    );
+    return <AppRoutes/>;
+}
+
+export default function App() {
+    if (!appConfig.authEnabled) {
+        return <AppRoutes/>;
+    }
+    return <AuthGate/>;
 }

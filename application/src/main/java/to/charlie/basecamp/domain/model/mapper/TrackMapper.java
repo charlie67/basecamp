@@ -29,6 +29,8 @@ public interface TrackMapper {
 	@Mapping(target = "chunk", ignore = true)
 	RoutePointEntity toRoutePointEntity(RoutePoint routePoint);
 
+	RoutePoint toRoutePoint(RoutePointEntity entity);
+
 	@Mapping(target = "id", ignore = true)
 	@Mapping(target = "workout", ignore = true)
 	@Mapping(target = "chunk", ignore = true)

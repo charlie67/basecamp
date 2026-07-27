@@ -14,13 +14,19 @@ import org.springframework.web.bind.annotation.RestController;
 import to.charlie.basecamp.domain.model.dto.common.PagedResponse;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutResponse;
+import to.charlie.basecamp.domain.model.dto.workout.RoutePoint;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkRequest;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkResponse;
 import to.charlie.basecamp.domain.model.dto.workout.WorkoutSummaryResponse;
+import to.charlie.basecamp.domain.model.entity.RoutePointEntity;
 import to.charlie.basecamp.domain.model.entity.TrackChunkEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
+import to.charlie.basecamp.domain.model.mapper.TrackMapper;
 import to.charlie.basecamp.domain.service.WorkoutService;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.springframework.http.HttpStatus.CREATED;
@@ -32,7 +38,7 @@ import static org.springframework.http.HttpStatus.CREATED;
 public class WorkoutController {
 
 	private final WorkoutService workoutService;
-
+	private final TrackMapper trackMapper;
 
 	@GetMapping
 	public ResponseEntity<PagedResponse<WorkoutSummaryResponse>> getWorkouts(
@@ -40,14 +46,31 @@ public class WorkoutController {
 		log.info("GET /workouts - listing workouts page={}", page);
 		final int safePage = Math.max(page, 0);
 
+		final var workoutPage = workoutService.getWorkouts(PageRequest.of(safePage, 20));
+
+		final List<UUID> workoutIds = workoutPage.getContent().stream()
+						.map(WorkoutEntity::getId)
+						.toList();
+		final Map<UUID, List<RoutePointEntity>> routePointsByWorkout =
+						workoutService.getRoutePointsByWorkoutIds(workoutIds);
+
 		final PagedResponse<WorkoutSummaryResponse> workouts = PagedResponse.from(
-						workoutService.getWorkouts(PageRequest.of(safePage, 20)),
-						workout -> WorkoutSummaryResponse.builder()
-										.id(workout.getId())
-										.type(workout.getType())
-										.startDate(workout.getStartDate())
-										.endDate(workout.getEndDate())
-										.build());
+						workoutPage,
+						workout -> {
+							final List<RoutePointEntity> allPoints = routePointsByWorkout
+											.getOrDefault(workout.getId(), Collections.emptyList());
+							final List<RoutePoint> routePoints = java.util.stream.IntStream.range(0, allPoints.size())
+											.filter(i -> i % 20 == 0)
+											.mapToObj(i -> trackMapper.toRoutePoint(allPoints.get(i)))
+											.toList();
+							return WorkoutSummaryResponse.builder()
+											.id(workout.getId())
+											.type(workout.getType())
+											.startDate(workout.getStartDate())
+											.endDate(workout.getEndDate())
+											.routePoints(routePoints)
+											.build();
+						});
 
 		return ResponseEntity.ok(workouts);
 	}

@@ -20,8 +20,10 @@ import to.charlie.basecamp.domain.model.mapper.TrackMapper;
 import to.charlie.basecamp.domain.model.mapper.WorkoutMapper;
 import to.charlie.basecamp.infrastructure.dal.dao.TrackDao;
 import to.charlie.basecamp.infrastructure.dal.dao.WorkoutDao;
+import to.charlie.basecamp.infrastructure.dal.repository.RoutePointRepository;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -38,9 +40,22 @@ public class WorkoutService {
 	private final TrackMapper trackMapper;
 	private final WorkoutDao workoutDao;
 	private final TrackDao trackDao;
+	private final RoutePointRepository routePointRepository;
 
 	public Page<WorkoutEntity> getWorkouts(final Pageable pageable) {
 		return workoutDao.findAllOrdered(pageable);
+	}
+
+	public Map<UUID, List<RoutePointEntity>> getRoutePointsByWorkoutIds(final Collection<UUID> workoutIds) {
+		if (workoutIds.isEmpty()) {
+			return Map.of();
+		}
+		final List<RoutePointEntity> allPoints = routePointRepository.findByWorkoutIdInOrderByWorkoutIdAscTAsc(workoutIds);
+		final Map<UUID, List<RoutePointEntity>> grouped = new java.util.LinkedHashMap<>();
+		for (final RoutePointEntity point : allPoints) {
+			grouped.computeIfAbsent(point.getWorkout().getId(), k -> new ArrayList<>()).add(point);
+		}
+		return grouped;
 	}
 
 	public WorkoutEntity createWorkout(final CreateWorkoutRequest request) {

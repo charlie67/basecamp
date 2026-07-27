@@ -57,4 +57,14 @@ public class SecurityConfig {
 
 		return http.build();
 	}
+
+	@Bean
+	@ConditionalOnProperty(name = "authentik.enabled", havingValue = "false", matchIfMissing = true)
+	public SecurityFilterChain noAuthSecurityFilterChain(final HttpSecurity http) throws Exception {
+		http
+						.authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+						.csrf(AbstractHttpConfigurer::disable);
+
+		return http.build();
+	}
 }
