@@ -21,7 +21,8 @@ cat > /srv/www/config.js <<EOF
 window.__APP_CONFIG__ = {
   authAuthority: "${FRONTEND_AUTH_AUTHORITY:-}",
   authClientId: "${FRONTEND_AUTH_CLIENT_ID:-}",
-  apiBase: "${FRONTEND_API_BASE:-/api}"
+  apiBase: "${FRONTEND_API_BASE:-/api}",
+  osMapApiKey: "${FRONTEND_OS_MAP_API_KEY:-}"
 };
 EOF
 

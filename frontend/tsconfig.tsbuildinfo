@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/config.ts","./src/main.tsx","./src/vite-env.d.ts","./src/api/workouts.ts","./src/auth/oidcconfig.ts","./src/auth/token.ts","./src/pages/workoutspage.tsx","./src/store/workoutstore.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/config.ts","./src/main.tsx","./src/vite-env.d.ts","./src/api/workouts.ts","./src/auth/oidcconfig.ts","./src/auth/token.ts","./src/components/layout.tsx","./src/pages/mappage.tsx","./src/pages/workoutspage.tsx","./src/store/workoutstore.ts"],"version":"5.9.3"}

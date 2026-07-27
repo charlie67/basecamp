@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import lombok.Builder;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Builder
@@ -13,5 +14,6 @@ public record WorkoutSummaryResponse(
         UUID id,
         String type,
         Instant startDate,
-        Instant endDate
+        Instant endDate,
+        List<RoutePoint> routePoints
 ) {}

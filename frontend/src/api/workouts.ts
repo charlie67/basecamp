@@ -1,11 +1,26 @@
 import { getAccessToken } from '../auth/token.ts';
 import { appConfig } from '../config.ts';
 
+export interface RoutePoint {
+  t: string | null;
+  lat: number;
+  lon: number;
+  altitude_m: number;
+  ellipsoidal_altitude_m: number;
+  horizontal_accuracy_m: number;
+  vertical_accuracy_m: number;
+  speed_mps: number;
+  speed_accuracy_mps: number;
+  course_deg: number;
+  course_accuracy_deg: number;
+}
+
 export interface Workout {
   id: string;
   type: string | null;
   start_date: string | null;
   end_date: string | null;
+  route_points: RoutePoint[];
 }
 
 export interface PagedResponse<T> {
