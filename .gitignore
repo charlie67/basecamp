@@ -23,3 +23,5 @@ target/
 ### VS Code ###
 .vscode/
 /docker/data/
+
+.env
