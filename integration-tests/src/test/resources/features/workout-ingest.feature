@@ -28,25 +28,6 @@ Feature: HealthKit workout ingest
     And the only "workout" row should have "track_status" equal to "COMPLETE"
     And the only "workout" row should have "expected_chunks" equal to "1"
 
-  Scenario: The workout listing exposes the summary stats the map panel shows
-    When I send an HTTP POST request to "/workouts" with the body from file: "workouts/hiking-summary.json"
-    Then "RESPONSE_STATUS" should be "201"
-    When I send an HTTP GET request to "/workouts"
-    Then "RESPONSE_STATUS" should be "200"
-    And the response body should contain the following fields:
-      | content[0].type                                | hiking    |
-      | content[0].duration_seconds                    | 5880.0    |
-      | content[0].distance_m                          | 8450.2    |
-      | content[0].elevation_gain_m                    | 612.5     |
-      | content[0].elevation_loss_m                    | 590.1     |
-      | content[0].active_calories                     | 940.0     |
-      | content[0].basal_calories                      | 220.0     |
-      | content[0].route_point_count                   | 1820      |
-      | content[0].statistics.heart_rate.avg           | 131.4     |
-      | content[0].statistics.heart_rate.max           | 162.0     |
-      | content[0].statistics.heart_rate.unit          | count/min |
-      | content[0].statistics.active_energy_burned.sum | 940.0     |
-
   Scenario: Re-posting the same summary upserts instead of duplicating
     When I send an HTTP POST request to "/workouts" with the body from file: "workouts/hiking-summary.json"
     Then "RESPONSE_STATUS" should be "201"

@@ -7,6 +7,7 @@ import {appConfig} from '../config.ts';
 import type {Workout} from '../api/workouts.ts';
 import {useWorkoutStore} from '../store/workoutStore.ts';
 import WorkoutDetailPanel from '../components/WorkoutDetailPanel.tsx';
+import WorkoutFilterBar from '../components/WorkoutFilterBar.tsx';
 import 'leaflet/dist/leaflet.css';
 
 proj4.defs('EPSG:27700', '+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 +ellps=airy +towgs84=446.448,-125.157,542.06,0.15,0.247,0.842,-20.489 +units=m +no_defs');
@@ -149,20 +150,48 @@ function initialViewport(layer: BaseLayer): Viewport {
     };
 }
 
+// A drag fires moveend once, but a filter refetch per gesture is still too eager
+// while the user is still moving around, so bounds settle before being published.
+const BOUNDS_DEBOUNCE_MS = 400;
+
 function MapPersistence({projection, onMove}: {projection: Projection; onMove: (viewport: Viewport) => void}) {
     const map = useMap();
+    const setBounds = useWorkoutStore((state) => state.setBounds);
+
     useEffect(() => {
+        // Leaflet reports bounds in WGS84 lat/lng whatever the map's CRS, so the
+        // British National Grid layers need no reprojection before this is queried on.
+        const publishBounds = () => {
+            const bounds = map.getBounds();
+            setBounds({
+                min_lat: bounds.getSouth(),
+                max_lat: bounds.getNorth(),
+                min_lon: bounds.getWest(),
+                max_lon: bounds.getEast(),
+            });
+        };
+
+        let timer: number | undefined;
         const onMoveEnd = () => {
             const {lat, lng} = map.getCenter();
             const viewport: Viewport = {lat, lng, zoom: map.getZoom(), projection};
             localStorage.setItem(VIEWPORT_STORAGE_KEY, JSON.stringify(viewport));
             onMove(viewport);
+
+            window.clearTimeout(timer);
+            timer = window.setTimeout(publishBounds, BOUNDS_DEBOUNCE_MS);
         };
+
+        // The first load has to be scoped too, or the map would fetch the whole
+        // country before the user has touched it.
+        publishBounds();
+
         map.on('moveend', onMoveEnd);
         return () => {
+            window.clearTimeout(timer);
             map.off('moveend', onMoveEnd);
         };
-    }, [map, projection, onMove]);
+    }, [map, projection, onMove, setBounds]);
     return null;
 }
 
@@ -188,6 +217,17 @@ function LayerControl({active, onSelect}: {active: BaseLayer; onSelect: (layer: 
 }
 
 const TRACK_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#a855f7', '#06b6d4', '#ec4899', '#14b8a6'];
+
+// Keyed off the workout's identity rather than its position in the list: filtering
+// changes which tracks are loaded, and picking by index would recolour every
+// surviving track each time the viewport or date moved.
+function trackColor(id: string): string {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+        hash = (hash * 31 + id.charCodeAt(i)) | 0;
+    }
+    return TRACK_COLORS[Math.abs(hash) % TRACK_COLORS.length];
+}
 
 // Leaflet's SVG paths have no click tolerance, so a 3px line is fiddly to hit.
 // Each track therefore also gets a wide fully-transparent stroke underneath it:
@@ -273,6 +313,23 @@ function Track({workout, color, selected, dimmed, onSelect}: {
     );
 }
 
+// The tracks already drawn stay put while a new query runs, so without this there
+// is nothing on screen to say the map is fetching a fresh set after a pan.
+function LoadingIndicator() {
+    return (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-[1000] -translate-x-1/2 rounded-full border border-slate-700 bg-slate-900/90 px-3 py-1.5 shadow-lg backdrop-blur">
+            <span className="flex items-center gap-2 text-sm text-slate-300">
+                <svg className="h-4 w-4 animate-spin text-slate-400" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor"
+                          d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"/>
+                </svg>
+                Loading tracks…
+            </span>
+        </div>
+    );
+}
+
 // Clicking bare map clears the selection. Leaflet stops propagation on
 // interactive layers, so this does not fire when a track itself is clicked.
 function MapClickClear({onClear}: {onClear: () => void}) {
@@ -281,20 +338,19 @@ function MapClickClear({onClear}: {onClear: () => void}) {
 }
 
 function WorkoutTracks() {
-    const {workouts, hasMore, loading, loadMore, selectedWorkoutId, selectWorkout} = useWorkoutStore();
+    const {workouts, hasMore, loading, loadMore, generation, selectedWorkoutId, selectWorkout} = useWorkoutStore();
 
-    useEffect(() => {
-        loadMore();
-    }, [loadMore]);
-
+    // The map draws every match rather than paging, so it walks the pages until
+    // there are none left. Now that the viewport bounds the query this is a small
+    // set. `generation` restarts the walk whenever a filter changes.
     useEffect(() => {
         if (!loading && hasMore) {
             loadMore();
         }
-    }, [loading, hasMore, loadMore]);
+    }, [loading, hasMore, loadMore, generation]);
 
     const drawable = workouts
-        .map((workout, i) => ({workout, color: TRACK_COLORS[i % TRACK_COLORS.length]}))
+        .map((workout) => ({workout, color: trackColor(workout.id)}))
         .filter(({workout}) => (workout.route_points?.length ?? 0) >= 2);
 
     // Leaflet's SVG renderer paints in insertion order, so the selected track is
@@ -336,8 +392,16 @@ export default function MapPage() {
     const [ready, setReady] = useState(false);
     const [layer, setLayer] = useState(savedLayer);
     const [viewport, setViewport] = useState(() => initialViewport(savedLayer()));
-    const {workouts, selectedWorkoutId, selectWorkout} = useWorkoutStore();
+    const {workouts, selectedWorkoutId, selectWorkout, setScope, loading, hasMore} = useWorkoutStore();
+    // The map walks every page, so `loading` alone drops between them and would
+    // blink the indicator. It is only really settled once no pages are left.
+    const fetching = loading || hasMore;
     const selectedWorkout = workouts.find((w) => w.id === selectedWorkoutId) ?? null;
+
+    // Tells the store to apply the viewport bounds while this page is the one mounted.
+    useEffect(() => {
+        setScope('map');
+    }, [setScope]);
 
     // Tracks the live view so a projection switch can carry it across, without
     // re-rendering the map on every pan.
@@ -371,6 +435,10 @@ export default function MapPage() {
                     Loading map...
                 </div>
             )}
+            {/* Outside MapContainer, like the controls below, so the projection
+                remount does not tear the filter down mid-edit. */}
+            <WorkoutFilterBar floating/>
+            {fetching && <LoadingIndicator/>}
             <LayerControl active={layer} onSelect={selectLayer}/>
             {selectedWorkout && (
                 <WorkoutDetailPanel workout={selectedWorkout} onClose={() => selectWorkout(null)}/>

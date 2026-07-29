@@ -1,16 +1,23 @@
 import { useEffect, useRef } from 'react';
 import { useWorkoutStore } from '../store/workoutStore.ts';
 import { formatDateTime } from '../lib/format.ts';
+import WorkoutFilterBar from '../components/WorkoutFilterBar.tsx';
 
 export default function WorkoutsPage() {
-  const { workouts, totalElements, hasMore, loading, error, loadMore } =
+  const { workouts, totalElements, hasMore, loading, error, loadMore, generation, setScope } =
     useWorkoutStore();
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  // Initial load.
+  // The list shows every workout matching the date, wherever it happened — the
+  // map's viewport bounds do not apply here.
+  useEffect(() => {
+    setScope('list');
+  }, [setScope]);
+
+  // Initial load, and a fresh first page whenever the filter changes.
   useEffect(() => {
     loadMore();
-  }, [loadMore]);
+  }, [loadMore, generation]);
 
   // Load the next page whenever the sentinel scrolls into view.
   useEffect(() => {
@@ -37,6 +44,8 @@ export default function WorkoutsPage() {
           <span className="text-sm text-slate-400">{totalElements} total</span>
         )}
       </header>
+
+        <WorkoutFilterBar/>
 
         {error && (
           <div className="mb-4 rounded-md border border-red-900 bg-red-950 px-4 py-3 text-sm text-red-300">

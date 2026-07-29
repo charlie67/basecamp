@@ -54,14 +54,34 @@ export interface PagedResponse<T> {
 // forwards /api/* to the backend same-origin — so no CORS is involved.
 const API_BASE = appConfig.apiBase;
 
-export async function fetchWorkouts(
-  page: number,
-  size: number,
+// The area of the world the map is currently showing, in WGS84 degrees. Leaflet
+// reports bounds as lat/lng whichever CRS the map is drawn in, so the British
+// National Grid layers need no conversion before these go to the API.
+export interface MapBounds {
+  min_lat: number;
+  max_lat: number;
+  min_lon: number;
+  max_lon: number;
+}
+
+// from/to are ISO-8601 instants: the frontend resolves the chosen calendar days
+// to absolute times in the viewer's zone so the backend never has to guess one.
+export interface WorkoutQuery {
+  from?: string | null;
+  to?: string | null;
+  bounds?: MapBounds | null;
+  page: number;
+}
+
+async function getWorkoutPage(
+  path: string,
+  params: URLSearchParams,
+  signal?: AbortSignal,
 ): Promise<PagedResponse<Workout>> {
-  const params = new URLSearchParams({ page: String(page), size: String(size) });
   const token = getAccessToken();
-  const response = await fetch(`${API_BASE}/workouts?${params}`, {
+  const response = await fetch(`${API_BASE}${path}?${params}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
+    signal,
   });
   if (response.status === 401) {
     throw new Error('Your session expired — reload the page to sign in again.');
@@ -71,4 +91,24 @@ export async function fetchWorkouts(
   }
 
   return response.json();
+}
+
+/**
+ * Filtered listing. Omitted filters are left off the query string entirely, which
+ * the backend reads as "no such predicate". Page size is fixed server-side.
+ */
+export async function searchWorkouts(
+  query: WorkoutQuery,
+  signal?: AbortSignal,
+): Promise<PagedResponse<Workout>> {
+  const params = new URLSearchParams({ page: String(query.page) });
+  if (query.from) params.set('from', query.from);
+  if (query.to) params.set('to', query.to);
+  if (query.bounds) {
+    for (const [key, value] of Object.entries(query.bounds)) {
+      params.set(key, String(value));
+    }
+  }
+
+  return getWorkoutPage('/workouts/search', params, signal);
 }

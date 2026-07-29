@@ -8,6 +8,7 @@ import to.charlie.basecamp.domain.model.dto.workout.TrackChunkRequest;
 import to.charlie.basecamp.domain.model.entity.RoutePointEntity;
 import to.charlie.basecamp.domain.model.entity.SeriesPointEntity;
 import to.charlie.basecamp.domain.model.entity.TrackChunkEntity;
+import to.charlie.basecamp.infrastructure.dal.projection.RoutePointProjection;
 
 /**
  * Maps the {@code POST /workouts/{id}/track} chunk DTO and its time-series payloads
@@ -30,6 +31,12 @@ public interface TrackMapper {
 	RoutePointEntity toRoutePointEntity(RoutePoint routePoint);
 
 	RoutePoint toRoutePoint(RoutePointEntity entity);
+
+	/**
+	 * {@code workoutId} rides along on the projection purely as a grouping key and has no
+	 * counterpart on the wire DTO, so it is dropped here rather than mapped.
+	 */
+	RoutePoint toRoutePoint(RoutePointProjection projection);
 
 	@Mapping(target = "id", ignore = true)
 	@Mapping(target = "workout", ignore = true)

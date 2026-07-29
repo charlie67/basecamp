@@ -87,3 +87,24 @@ export function formatTimeOfDay(value: string | null | undefined): string {
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
+
+// A `<input type="date">` gives a bare yyyy-mm-dd with no zone, but a workout is
+// stored at an absolute instant. The two conversions below pin those days to the
+// viewer's local midnight, so "1 March" means the day the viewer actually lived
+// through rather than a UTC day that starts mid-evening for some of them.
+
+/** Start of the given local day, as an ISO instant. */
+export function startOfDayIso(day: string | null): string | null {
+  if (!day) return null;
+  const date = new Date(`${day}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+/** Start of the day *after* the given one — the range's exclusive upper bound. */
+export function endOfDayIso(day: string | null): string | null {
+  if (!day) return null;
+  const date = new Date(`${day}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setDate(date.getDate() + 1);
+  return date.toISOString();
+}
