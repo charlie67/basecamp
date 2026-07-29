@@ -2,9 +2,11 @@ import {useEffect, useRef, useState} from 'react';
 import proj4 from 'proj4';
 import 'proj4leaflet';
 import L from 'leaflet';
-import {MapContainer, TileLayer, Polyline, useMap} from 'react-leaflet';
+import {MapContainer, TileLayer, Pane, Polyline, CircleMarker, useMap, useMapEvent} from 'react-leaflet';
 import {appConfig} from '../config.ts';
+import type {Workout} from '../api/workouts.ts';
 import {useWorkoutStore} from '../store/workoutStore.ts';
+import WorkoutDetailPanel from '../components/WorkoutDetailPanel.tsx';
 import 'leaflet/dist/leaflet.css';
 
 proj4.defs('EPSG:27700', '+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 +ellps=airy +towgs84=446.448,-125.157,542.06,0.15,0.247,0.842,-20.489 +units=m +no_defs');
@@ -187,8 +189,99 @@ function LayerControl({active, onSelect}: {active: BaseLayer; onSelect: (layer: 
 
 const TRACK_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#a855f7', '#06b6d4', '#ec4899', '#14b8a6'];
 
+// Leaflet's SVG paths have no click tolerance, so a 3px line is fiddly to hit.
+// Each track therefore also gets a wide fully-transparent stroke underneath it:
+// stroke-opacity 0 still receives pointer events.
+const HIT_WEIGHT = 14;
+
+// Track colours have to work over whatever the base map happens to show, and a
+// bare line disappears against busy or dark ground (woodland fill on Leisure,
+// for instance). So every line is drawn over a wider white casing, which keeps
+// the colour itself untouched but always separates it from the map.
+const CASING_PANE = 'track-casing';
+const CASING_COLOR = '#ffffff';
+const CASING_EXTRA_WEIGHT = 2;
+
+function trackPositions(workout: Workout): [number, number][] {
+    return workout.route_points.map((p) => [p.lat, p.lon]);
+}
+
+function trackWeight(selected: boolean): number {
+    return selected ? 5 : 3;
+}
+
+// Leaflet re-fires a layer's mouse events on the map by default, so without
+// bubblingMouseEvents={false} below, MapClickClear would wipe the selection in
+// the very click that made it.
+
+// The casings live in their own pane, below the pane holding the lines. Within
+// one pane Leaflet paints in insertion order, so a casing drawn there would
+// cover the line of any track added before it.
+function TrackCasing({workout, selected, dimmed}: {workout: Workout; selected: boolean; dimmed: boolean}) {
+    return (
+        <Polyline
+            positions={trackPositions(workout)}
+            interactive={false}
+            pathOptions={{
+                color: CASING_COLOR,
+                weight: trackWeight(selected) + CASING_EXTRA_WEIGHT,
+                opacity: dimmed ? 0.25 : 0.9,
+            }}
+        />
+    );
+}
+
+function Track({workout, color, selected, dimmed, onSelect}: {
+    workout: Workout;
+    color: string;
+    selected: boolean;
+    dimmed: boolean;
+    onSelect: () => void;
+}) {
+    const positions = trackPositions(workout);
+    const handlers = {click: onSelect};
+
+    return (
+        <>
+            <Polyline
+                positions={positions}
+                pathOptions={{color, weight: HIT_WEIGHT, opacity: 0}}
+                eventHandlers={handlers}
+                bubblingMouseEvents={false}
+            />
+            <Polyline
+                positions={positions}
+                pathOptions={{color, weight: trackWeight(selected), opacity: dimmed ? 0.3 : selected ? 1 : 0.8}}
+                eventHandlers={handlers}
+                bubblingMouseEvents={false}
+            />
+            {selected && (
+                <>
+                    <CircleMarker
+                        center={positions[0]}
+                        radius={6}
+                        pathOptions={{color: '#ffffff', weight: 2, fillColor: '#22c55e', fillOpacity: 1}}
+                    />
+                    <CircleMarker
+                        center={positions[positions.length - 1]}
+                        radius={6}
+                        pathOptions={{color: '#ffffff', weight: 2, fillColor: '#ef4444', fillOpacity: 1}}
+                    />
+                </>
+            )}
+        </>
+    );
+}
+
+// Clicking bare map clears the selection. Leaflet stops propagation on
+// interactive layers, so this does not fire when a track itself is clicked.
+function MapClickClear({onClear}: {onClear: () => void}) {
+    useMapEvent('click', onClear);
+    return null;
+}
+
 function WorkoutTracks() {
-    const {workouts, hasMore, loading, loadMore} = useWorkoutStore();
+    const {workouts, hasMore, loading, loadMore, selectedWorkoutId, selectWorkout} = useWorkoutStore();
 
     useEffect(() => {
         loadMore();
@@ -200,20 +293,41 @@ function WorkoutTracks() {
         }
     }, [loading, hasMore, loadMore]);
 
+    const drawable = workouts
+        .map((workout, i) => ({workout, color: TRACK_COLORS[i % TRACK_COLORS.length]}))
+        .filter(({workout}) => (workout.route_points?.length ?? 0) >= 2);
+
+    // Leaflet's SVG renderer paints in insertion order, so the selected track is
+    // rendered last to keep it above its neighbours.
+    const ordered = [
+        ...drawable.filter(({workout}) => workout.id !== selectedWorkoutId),
+        ...drawable.filter(({workout}) => workout.id === selectedWorkoutId),
+    ];
+
     return (
         <>
-            {workouts.map((workout, i) => {
-                const points = workout.route_points;
-                if (!points || points.length < 2) return null;
-                const positions: [number, number][] = points.map((p) => [p.lat, p.lon]);
-                return (
-                    <Polyline
+            <MapClickClear onClear={() => selectWorkout(null)}/>
+            {/* Between the tiles (200) and the default overlay pane (400). */}
+            <Pane name={CASING_PANE} style={{zIndex: 350}}>
+                {ordered.map(({workout}) => (
+                    <TrackCasing
                         key={workout.id}
-                        positions={positions}
-                        pathOptions={{color: TRACK_COLORS[i % TRACK_COLORS.length], weight: 3, opacity: 0.8}}
+                        workout={workout}
+                        selected={workout.id === selectedWorkoutId}
+                        dimmed={selectedWorkoutId !== null && workout.id !== selectedWorkoutId}
                     />
-                );
-            })}
+                ))}
+            </Pane>
+            {ordered.map(({workout, color}) => (
+                <Track
+                    key={workout.id}
+                    workout={workout}
+                    color={color}
+                    selected={workout.id === selectedWorkoutId}
+                    dimmed={selectedWorkoutId !== null && workout.id !== selectedWorkoutId}
+                    onSelect={() => selectWorkout(workout.id)}
+                />
+            ))}
         </>
     );
 }
@@ -222,6 +336,8 @@ export default function MapPage() {
     const [ready, setReady] = useState(false);
     const [layer, setLayer] = useState(savedLayer);
     const [viewport, setViewport] = useState(() => initialViewport(savedLayer()));
+    const {workouts, selectedWorkoutId, selectWorkout} = useWorkoutStore();
+    const selectedWorkout = workouts.find((w) => w.id === selectedWorkoutId) ?? null;
 
     // Tracks the live view so a projection switch can carry it across, without
     // re-rendering the map on every pan.
@@ -256,6 +372,9 @@ export default function MapPage() {
                 </div>
             )}
             <LayerControl active={layer} onSelect={selectLayer}/>
+            {selectedWorkout && (
+                <WorkoutDetailPanel workout={selectedWorkout} onClose={() => selectWorkout(null)}/>
+            )}
             <MapContainer
                 // Remounts the map when the projection changes; Leaflet cannot
                 // swap a live map's CRS.

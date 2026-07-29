@@ -6,6 +6,7 @@ import lombok.Builder;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Builder
@@ -15,5 +16,15 @@ public record WorkoutSummaryResponse(
         String type,
         Instant startDate,
         Instant endDate,
+        double durationSeconds,
+        Double distanceM,
+        Double elevationGainM,
+        Double elevationLossM,
+        Double activeCalories,
+        Double basalCalories,
+        int routePointCount,
+        // Keyed by metric name as stored (heart_rate, active_energy_burned, ...);
+        // the snake_case naming strategy applies to fields, not map keys.
+        Map<String, StatisticSummary> statistics,
         List<RoutePoint> routePoints
 ) {}

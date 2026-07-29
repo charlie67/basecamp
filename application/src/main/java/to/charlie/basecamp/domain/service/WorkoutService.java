@@ -21,6 +21,7 @@ import to.charlie.basecamp.domain.model.mapper.WorkoutMapper;
 import to.charlie.basecamp.infrastructure.dal.dao.TrackDao;
 import to.charlie.basecamp.infrastructure.dal.dao.WorkoutDao;
 import to.charlie.basecamp.infrastructure.dal.repository.RoutePointRepository;
+import to.charlie.basecamp.infrastructure.dal.repository.WorkoutStatisticRepository;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -41,6 +42,7 @@ public class WorkoutService {
 	private final WorkoutDao workoutDao;
 	private final TrackDao trackDao;
 	private final RoutePointRepository routePointRepository;
+	private final WorkoutStatisticRepository workoutStatisticRepository;
 
 	public Page<WorkoutEntity> getWorkouts(final Pageable pageable) {
 		return workoutDao.findAllOrdered(pageable);
@@ -54,6 +56,20 @@ public class WorkoutService {
 		final Map<UUID, List<RoutePointEntity>> grouped = new java.util.LinkedHashMap<>();
 		for (final RoutePointEntity point : allPoints) {
 			grouped.computeIfAbsent(point.getWorkout().getId(), k -> new ArrayList<>()).add(point);
+		}
+		return grouped;
+	}
+
+	public Map<UUID, List<WorkoutStatisticEntity>> getStatisticsByWorkoutIds(final Collection<UUID> workoutIds) {
+		if (workoutIds.isEmpty()) {
+			return Map.of();
+		}
+		final List<WorkoutStatisticEntity> allStatistics = workoutStatisticRepository.findByWorkoutIdIn(workoutIds);
+		final Map<UUID, List<WorkoutStatisticEntity>> grouped = new java.util.LinkedHashMap<>();
+		for (final WorkoutStatisticEntity statistic : allStatistics) {
+			// The embedded id already carries the workout FK, so grouping never has to
+			// touch the lazy workout association.
+			grouped.computeIfAbsent(statistic.getId().getWorkoutId(), k -> new ArrayList<>()).add(statistic);
 		}
 		return grouped;
 	}

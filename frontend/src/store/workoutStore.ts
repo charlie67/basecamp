@@ -10,7 +10,11 @@ interface WorkoutState {
   hasMore: boolean;
   loading: boolean;
   error: string | null;
+  // Which track the map has selected. Lives here rather than in MapPage because
+  // the map is remounted whenever the base layer changes projection.
+  selectedWorkoutId: string | null;
   loadMore: () => Promise<void>;
+  selectWorkout: (id: string | null) => void;
 }
 
 export const useWorkoutStore = create<WorkoutState>((set, get) => ({
@@ -20,6 +24,8 @@ export const useWorkoutStore = create<WorkoutState>((set, get) => ({
   hasMore: true,
   loading: false,
   error: null,
+  selectedWorkoutId: null,
+  selectWorkout: (id) => set({ selectedWorkoutId: id }),
   loadMore: async () => {
     const { loading, hasMore, nextPage } = get();
     if (loading || !hasMore) return;

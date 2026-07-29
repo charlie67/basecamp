@@ -15,19 +15,23 @@ import to.charlie.basecamp.domain.model.dto.common.PagedResponse;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutResponse;
 import to.charlie.basecamp.domain.model.dto.workout.RoutePoint;
+import to.charlie.basecamp.domain.model.dto.workout.StatisticSummary;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkRequest;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkResponse;
 import to.charlie.basecamp.domain.model.dto.workout.WorkoutSummaryResponse;
 import to.charlie.basecamp.domain.model.entity.RoutePointEntity;
 import to.charlie.basecamp.domain.model.entity.TrackChunkEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
+import to.charlie.basecamp.domain.model.entity.WorkoutStatisticEntity;
 import to.charlie.basecamp.domain.model.mapper.TrackMapper;
+import to.charlie.basecamp.domain.model.mapper.WorkoutMapper;
 import to.charlie.basecamp.domain.service.WorkoutService;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static org.springframework.http.HttpStatus.CREATED;
 
@@ -39,6 +43,7 @@ public class WorkoutController {
 
 	private final WorkoutService workoutService;
 	private final TrackMapper trackMapper;
+	private final WorkoutMapper workoutMapper;
 
 	@GetMapping
 	public ResponseEntity<PagedResponse<WorkoutSummaryResponse>> getWorkouts(
@@ -53,6 +58,8 @@ public class WorkoutController {
 						.toList();
 		final Map<UUID, List<RoutePointEntity>> routePointsByWorkout =
 						workoutService.getRoutePointsByWorkoutIds(workoutIds);
+		final Map<UUID, List<WorkoutStatisticEntity>> statisticsByWorkout =
+						workoutService.getStatisticsByWorkoutIds(workoutIds);
 
 		final PagedResponse<WorkoutSummaryResponse> workouts = PagedResponse.from(
 						workoutPage,
@@ -63,11 +70,25 @@ public class WorkoutController {
 											.filter(i -> i % 20 == 0)
 											.mapToObj(i -> trackMapper.toRoutePoint(allPoints.get(i)))
 											.toList();
+							final Map<String, StatisticSummary> statistics = statisticsByWorkout
+											.getOrDefault(workout.getId(), Collections.emptyList())
+											.stream()
+											.collect(Collectors.toMap(
+															statistic -> statistic.getId().getName(),
+															workoutMapper::toStatisticSummary));
 							return WorkoutSummaryResponse.builder()
 											.id(workout.getId())
 											.type(workout.getType())
 											.startDate(workout.getStartDate())
 											.endDate(workout.getEndDate())
+											.durationSeconds(workout.getDurationSeconds())
+											.distanceM(workout.getDistanceM())
+											.elevationGainM(workout.getElevationGainM())
+											.elevationLossM(workout.getElevationLossM())
+											.activeCalories(workout.getActiveCalories())
+											.basalCalories(workout.getBasalCalories())
+											.routePointCount(workout.getRoutePointCount())
+											.statistics(statistics)
 											.routePoints(routePoints)
 											.build();
 						});

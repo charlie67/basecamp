@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 import to.charlie.basecamp.domain.model.entity.WorkoutStatisticEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutStatisticId;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -12,6 +13,8 @@ import java.util.UUID;
 public interface WorkoutStatisticRepository extends JpaRepository<WorkoutStatisticEntity, WorkoutStatisticId> {
 
 	List<WorkoutStatisticEntity> findByWorkoutId(UUID workoutId);
+
+	List<WorkoutStatisticEntity> findByWorkoutIdIn(Collection<UUID> workoutIds);
 
 	void deleteByWorkoutId(UUID workoutId);
 }

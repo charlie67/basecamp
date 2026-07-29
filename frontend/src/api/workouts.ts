@@ -15,11 +15,29 @@ export interface RoutePoint {
   course_accuracy_deg: number;
 }
 
+// Per-metric aggregate from HealthKit, keyed by metric name (heart_rate,
+// active_energy_burned, ...). Which metrics are present varies by workout.
+export interface StatisticSummary {
+  min: number;
+  max: number;
+  avg: number;
+  sum: number;
+  unit: string | null;
+}
+
 export interface Workout {
   id: string;
   type: string | null;
   start_date: string | null;
   end_date: string | null;
+  duration_seconds: number;
+  distance_m: number | null;
+  elevation_gain_m: number | null;
+  elevation_loss_m: number | null;
+  active_calories: number | null;
+  basal_calories: number | null;
+  route_point_count: number;
+  statistics: Record<string, StatisticSummary> | null;
   route_points: RoutePoint[];
 }
 

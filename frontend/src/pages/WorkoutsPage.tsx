@@ -1,11 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useWorkoutStore } from '../store/workoutStore.ts';
-
-function formatTime(value: string | null): string {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-}
+import { formatDateTime } from '../lib/format.ts';
 
 export default function WorkoutsPage() {
   const { workouts, totalElements, hasMore, loading, error, loadMore } =
@@ -61,7 +56,7 @@ export default function WorkoutsPage() {
             >
               <div className="font-medium">{workout.type ?? 'Unknown type'}</div>
               <div className="mt-1 text-sm text-slate-400">
-                {formatTime(workout.start_date)} → {formatTime(workout.end_date)}
+                {formatDateTime(workout.start_date)} → {formatDateTime(workout.end_date)}
               </div>
             </li>
           ))}
