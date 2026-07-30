@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
+import to.charlie.basecamp.domain.model.dto.workout.RoutePoint;
 import to.charlie.basecamp.domain.model.dto.workout.SeriesPoint;
 import to.charlie.basecamp.domain.model.dto.workout.StatisticSummary;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkRequest;
@@ -16,11 +17,14 @@ import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutEventEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutStatisticEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutStatisticId;
+import to.charlie.basecamp.domain.model.query.WorkoutSearchCriteria;
 import to.charlie.basecamp.domain.model.mapper.TrackMapper;
 import to.charlie.basecamp.domain.model.mapper.WorkoutMapper;
 import to.charlie.basecamp.infrastructure.dal.dao.TrackDao;
 import to.charlie.basecamp.infrastructure.dal.dao.WorkoutDao;
+import to.charlie.basecamp.infrastructure.dal.projection.RoutePointProjection;
 import to.charlie.basecamp.infrastructure.dal.repository.RoutePointRepository;
+import to.charlie.basecamp.infrastructure.dal.repository.WorkoutStatisticRepository;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -36,24 +40,57 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class WorkoutService {
 
+	/**
+	 * Route points are thinned before they go on the wire — the map does not need every fix.
+	 * Applied in the database rather than after loading, so the discarded fixes are never read.
+	 */
+	private static final int ROUTE_POINT_STRIDE = 20;
+
 	private final WorkoutMapper workoutMapper;
 	private final TrackMapper trackMapper;
 	private final WorkoutDao workoutDao;
 	private final TrackDao trackDao;
 	private final RoutePointRepository routePointRepository;
+	private final WorkoutStatisticRepository workoutStatisticRepository;
 
 	public Page<WorkoutEntity> getWorkouts(final Pageable pageable) {
 		return workoutDao.findAllOrdered(pageable);
 	}
 
-	public Map<UUID, List<RoutePointEntity>> getRoutePointsByWorkoutIds(final Collection<UUID> workoutIds) {
+	public Page<WorkoutEntity> searchWorkouts(final WorkoutSearchCriteria criteria, final Pageable pageable) {
+		return workoutDao.search(criteria, pageable);
+	}
+
+	/**
+	 * The map's polylines for a page of workouts, already thinned to every
+	 * {@link #ROUTE_POINT_STRIDE}-th fix and grouped by workout.
+	 */
+	public Map<UUID, List<RoutePoint>> getRoutePointsByWorkoutIds(final Collection<UUID> workoutIds) {
 		if (workoutIds.isEmpty()) {
 			return Map.of();
 		}
-		final List<RoutePointEntity> allPoints = routePointRepository.findByWorkoutIdInOrderByWorkoutIdAscTAsc(workoutIds);
-		final Map<UUID, List<RoutePointEntity>> grouped = new java.util.LinkedHashMap<>();
-		for (final RoutePointEntity point : allPoints) {
-			grouped.computeIfAbsent(point.getWorkout().getId(), k -> new ArrayList<>()).add(point);
+		final List<RoutePointProjection> allPoints =
+						routePointRepository.findThinnedByWorkoutIds(workoutIds, ROUTE_POINT_STRIDE);
+		final Map<UUID, List<RoutePoint>> grouped = new java.util.LinkedHashMap<>();
+		for (final RoutePointProjection point : allPoints) {
+			// The projection carries the workout FK as a plain column, so grouping never has to
+			// touch a lazy association.
+			grouped.computeIfAbsent(point.getWorkoutId(), k -> new ArrayList<>())
+							.add(trackMapper.toRoutePoint(point));
+		}
+		return grouped;
+	}
+
+	public Map<UUID, List<WorkoutStatisticEntity>> getStatisticsByWorkoutIds(final Collection<UUID> workoutIds) {
+		if (workoutIds.isEmpty()) {
+			return Map.of();
+		}
+		final List<WorkoutStatisticEntity> allStatistics = workoutStatisticRepository.findByWorkoutIdIn(workoutIds);
+		final Map<UUID, List<WorkoutStatisticEntity>> grouped = new java.util.LinkedHashMap<>();
+		for (final WorkoutStatisticEntity statistic : allStatistics) {
+			// The embedded id already carries the workout FK, so grouping never has to
+			// touch the lazy workout association.
+			grouped.computeIfAbsent(statistic.getId().getWorkoutId(), k -> new ArrayList<>()).add(statistic);
 		}
 		return grouped;
 	}

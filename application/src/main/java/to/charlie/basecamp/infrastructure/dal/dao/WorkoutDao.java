@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import to.charlie.basecamp.domain.model.query.WorkoutSearchCriteria;
 import to.charlie.basecamp.domain.model.entity.TrackStatus;
 import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutEventEntity;
@@ -28,6 +29,18 @@ public class WorkoutDao {
 	@Transactional(readOnly = true)
 	public Page<WorkoutEntity> findAllOrdered(final Pageable pageable) {
 		return workoutRepository.findAllByOrderByEndDateDesc(pageable);
+	}
+
+	@Transactional(readOnly = true)
+	public Page<WorkoutEntity> search(final WorkoutSearchCriteria criteria, final Pageable pageable) {
+		return workoutRepository.search(
+						criteria.from(),
+						criteria.to(),
+						criteria.minLat(),
+						criteria.maxLat(),
+						criteria.minLon(),
+						criteria.maxLon(),
+						pageable);
 	}
 
 	@Transactional

@@ -2,11 +2,16 @@ package to.charlie.basecamp;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import to.charlie.basecamp.configuration.OsMapsConfiguration;
 
 @SpringBootApplication
+@EnableConfigurationProperties(
+				{OsMapsConfiguration.class}
+)
 public class BasecampApplication {
 
-	public static void main(String[] args) {
+	static void main(final String[] args) {
 		SpringApplication.run(BasecampApplication.class, args);
 	}
 

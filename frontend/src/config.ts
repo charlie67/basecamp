@@ -11,7 +11,6 @@ interface RuntimeConfig {
   authAuthority: string;
   authClientId: string;
   apiBase: string;
-  osMapApiKey: string;
 }
 
 declare global {
@@ -27,7 +26,6 @@ export const appConfig = {
   authAuthority: runtime.authAuthority || import.meta.env.VITE_AUTH_AUTHORITY || '',
   authClientId: runtime.authClientId || import.meta.env.VITE_AUTH_CLIENT_ID || '',
   apiBase: runtime.apiBase || import.meta.env.VITE_API_BASE || '/api',
-  osMapApiKey: runtime.osMapApiKey || import.meta.env.VITE_OS_MAP_API_KEY || '',
 };
 
 if (appConfig.authEnabled && !appConfig.authAuthority) {

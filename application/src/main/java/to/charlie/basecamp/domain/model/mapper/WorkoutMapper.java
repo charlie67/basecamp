@@ -38,6 +38,8 @@ public interface WorkoutMapper {
 	@Mapping(target = "workout", ignore = true)
 	WorkoutStatisticEntity toStatisticEntity(StatisticSummary summary);
 
+	StatisticSummary toStatisticSummary(WorkoutStatisticEntity entity);
+
 	@Mapping(target = "id", ignore = true)
 	@Mapping(target = "workout", ignore = true)
 	@Mapping(target = "chunk", ignore = true)
