@@ -11,6 +11,8 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import to.charlie.basecamp.configuration.S3Properties;
+import to.charlie.basecamp.domain.model.ProviderEnum;
+import to.charlie.basecamp.infrastructure.rest.client.MapBoxApiClient;
 import to.charlie.basecamp.infrastructure.rest.client.OsMapsApiClient;
 
 @Service
@@ -19,12 +21,13 @@ import to.charlie.basecamp.infrastructure.rest.client.OsMapsApiClient;
 public class MapTileService {
 
 	private final OsMapsApiClient osMapsApiClient;
+	private final MapBoxApiClient mapBoxApiClient;
 	private final S3Client s3Client;
 	private final S3Properties s3Properties;
 
-	public ResponseEntity<byte[]> getMapTile(final String map, final int z, final int x, final int y) {
+	public ResponseEntity<byte[]> getMapTile(final ProviderEnum provider, final String map, final int z, final int x, final int y) {
 
-		final String key = String.format("%s/%d/%d/%d.png", map, z, x, y);
+		final String key = String.format("%s/%s/%d/%d/%d.png", provider, map, z, x, y);
 
 		final byte[] cachedTile = getCachedTile(key);
 		if (cachedTile != null) {
@@ -34,10 +37,13 @@ public class MapTileService {
 
 		log.info("Map tile not in S3 cache: {} - fetching from OS Maps", key);
 
-		final ResponseEntity<byte[]> response = osMapsApiClient.getTile(map, z, x, y);
+		final ResponseEntity<byte[]> response = switch (provider) {
+			case MAP_BOX -> mapBoxApiClient.getTile(map, z, x, y);
+			case OS_MAPS -> osMapsApiClient.getTile(map, z, x, y);
+		};
 
 		if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-			log.info("Successfully received map tile: {}/{}/{}/{} - saving in S3", map, z, x, y);
+			log.info("Successfully received map tile: {}/{}/{}/{}/{} - saving in S3", provider, map, z, x, y);
 			s3Client.putObject(
 							PutObjectRequest.builder()
 											.bucket(s3Properties.getBucket())

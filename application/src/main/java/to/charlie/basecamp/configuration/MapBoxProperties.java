@@ -6,10 +6,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@ConfigurationProperties(prefix = "osmaps")
+@ConfigurationProperties(prefix = "mapbox")
 @Getter
 @Setter
-public class OsMapsConfiguration {
+public class MapBoxProperties {
 	private String apiKey;
 	private String apiUrl;
 }

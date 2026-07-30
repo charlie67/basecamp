@@ -33,7 +33,6 @@ type Projection = 'bng' | 'web';
 interface BaseLayer {
     name: string;
     url: string;
-    attribution: string;
     projection: Projection;
     maxZoom: number;
     // Deepest zoom the tile server actually has, when that is shallower than
@@ -43,19 +42,23 @@ interface BaseLayer {
     // Served by our own backend, so the request needs the access token. Public tile
     // servers get nothing.
     authenticated: boolean;
+    // Tile edge in pixels, when the source does not serve Leaflet's default 256.
+    // A 512px source covers two zoom levels' worth of ground per tile, so it also
+    // needs zoomOffset -1 to stay aligned with the standard zoom numbering.
+    tileSize?: number;
+    zoomOffset?: number;
 }
 
 const BNG_MAX_ZOOM = resolutions.length - 1;
 const WEB_MAX_ZOOM = 19;
 const LEISURE_MAX_NATIVE_ZOOM = 9;
 
-const OS_TILE_URL = `${appConfig.apiBase}/tiles/{layer}/{z}/{x}/{y}.png`;
+const OS_TILE_URL = `${appConfig.apiBase}/tiles/OS_MAPS/{layer}/{z}/{x}/{y}.png`;
 
 function osLayer(name: string, id: string, maxNativeZoom?: number): BaseLayer {
     return {
         name,
         url: OS_TILE_URL.replace('{layer}', id),
-        attribution: '&copy; Ordnance Survey',
         projection: 'bng',
         maxZoom: BNG_MAX_ZOOM,
         maxNativeZoom,
@@ -63,10 +66,9 @@ function osLayer(name: string, id: string, maxNativeZoom?: number): BaseLayer {
     };
 }
 
-// Leaflet loads tiles as plain `<img src>`, which cannot carry an Authorization
-// header, so the token for our own tile endpoint has to travel in the query
-// string. Kept out of the module-level layer definitions because it changes on
-// every silent renew.
+// to keep the map tile endpoint secure need to also include an access_token on the request
+// leaflet can't embed the auth header like in existing requests so need to have special
+// handling to enable the
 function tileUrl(layer: BaseLayer, accessToken: string | null): string {
     if (!layer.authenticated || !accessToken) {
         return layer.url;
@@ -74,17 +76,40 @@ function tileUrl(layer: BaseLayer, accessToken: string | null): string {
     return `${layer.url}?access_token=${encodeURIComponent(accessToken)}`;
 }
 
+// The backend asks Mapbox for 512px @2x tiles and passes them through, so the
+// tiles arriving here are 512px however our own URL is shaped. That is what the
+// -1 zoom offset compensates for: one such tile covers two zoom levels' worth of
+// ground, and the offset keeps the map on standard zoom numbering.
+const MAPBOX_TILE_SIZE = 512;
+const MAPBOX_ZOOM_OFFSET = -1;
+const MAPBOX_TILE_URL = `${appConfig.apiBase}/tiles/MAP_BOX/{layer}/{z}/{x}/{y}.png`;
+
+// `styleId` is the Mapbox style the backend appends to its own api-url, so these
+// are Mapbox's names for them rather than anything we define.
+function mapboxLayer(name: string, styleId: string): BaseLayer {
+    return {
+        name,
+        url: MAPBOX_TILE_URL.replace('{layer}', styleId),
+        projection: 'web',
+        maxZoom: WEB_MAX_ZOOM,
+        authenticated: true,
+        tileSize: MAPBOX_TILE_SIZE,
+        zoomOffset: MAPBOX_ZOOM_OFFSET,
+    };
+}
+
 const BASE_LAYERS: BaseLayer[] = [
     osLayer('Outdoor', 'Outdoor_27700'),
-    // The only 27700 layer OS does not publish to zoom 13; it stops at 9
-    // (1.75 m/px) on the Premium plan, and at 5 on OpenData.
+    // Leisure stops at zoom level 9
     osLayer('Leisure', 'Leisure_27700', LEISURE_MAX_NATIVE_ZOOM),
     osLayer('Road', 'Road_27700'),
     osLayer('Light', 'Light_27700'),
+    mapboxLayer('Satellite', 'satellite-v9'),
+    mapboxLayer('Hybrid', 'satellite-streets-v12'),
+    mapboxLayer('Mapbox Outdoors', 'outdoors-v12'),
     {
         name: 'World',
         url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         projection: 'web',
         maxZoom: WEB_MAX_ZOOM,
         authenticated: false,
@@ -175,8 +200,6 @@ function initialViewport(layer: BaseLayer): Viewport {
     };
 }
 
-// A drag fires moveend once, but a filter refetch per gesture is still too eager
-// while the user is still moving around, so bounds settle before being published.
 const BOUNDS_DEBOUNCE_MS = 400;
 
 function MapPersistence({projection, onMove}: {projection: Projection; onMove: (viewport: Viewport) => void}) {
@@ -260,12 +283,12 @@ function trackColor(id: string): string {
 const HIT_WEIGHT = 14;
 
 // Track colours have to work over whatever the base map happens to show, and a
-// bare line disappears against busy or dark ground (woodland fill on Leisure,
-// for instance). So every line is drawn over a wider white casing, which keeps
+// bare line disappears against busy or dark ground.
+// So every line is drawn over a wider white casing, which keeps
 // the colour itself untouched but always separates it from the map.
 const CASING_PANE = 'track-casing';
 const CASING_COLOR = '#ffffff';
-const CASING_EXTRA_WEIGHT = 2;
+const CASING_EXTRA_WEIGHT = 3;
 
 function trackPositions(workout: Workout): [number, number][] {
     return workout.route_points.map((p) => [p.lat, p.lon]);
@@ -502,7 +525,8 @@ export default function MapPage() {
                     url={tileUrl(layer, accessToken)}
                     maxZoom={layer.maxZoom}
                     maxNativeZoom={layer.maxNativeZoom}
-                    attribution={layer.attribution}
+                    tileSize={layer.tileSize ?? 256}
+                    zoomOffset={layer.zoomOffset ?? 0}
                     eventHandlers={{tileerror: onTileError}}
                 />
             </MapContainer>

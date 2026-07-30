@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import to.charlie.basecamp.domain.model.dto.WorkoutSearchCriteriaDto;
 import to.charlie.basecamp.domain.model.dto.common.PagedResponse;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutResponse;
@@ -24,7 +25,6 @@ import to.charlie.basecamp.domain.model.entity.TrackChunkEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutStatisticEntity;
 import to.charlie.basecamp.domain.model.mapper.WorkoutMapper;
-import to.charlie.basecamp.domain.model.query.WorkoutSearchCriteria;
 import to.charlie.basecamp.domain.service.WorkoutService;
 
 import java.time.Instant;
@@ -70,7 +70,7 @@ public class WorkoutController {
 		log.info("GET /workouts/search - from={} to={} bbox=[{},{} {},{}] page={}",
 						from, to, minLat, minLon, maxLat, maxLon, page);
 		final int safePage = Math.max(page, 0);
-		final WorkoutSearchCriteria criteria = WorkoutSearchCriteria.of(from, to, minLat, maxLat, minLon, maxLon);
+		final WorkoutSearchCriteriaDto criteria = WorkoutSearchCriteriaDto.of(from, to, minLat, maxLat, minLon, maxLon);
 
 		final var workoutPage = workoutService.searchWorkouts(criteria, PageRequest.of(safePage, 20));
 

@@ -4,20 +4,20 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
-import to.charlie.basecamp.configuration.OsMapsProperties;
+import to.charlie.basecamp.configuration.MapBoxProperties;
 
 @Component
 @RequiredArgsConstructor
-public class OsMapsApiClient {
+public class MapBoxApiClient {
 
 	private final RestClient restClient;
-	private final OsMapsProperties osMapsProperties;
+	private final MapBoxProperties mapBoxProperties;
 
 	public ResponseEntity<byte[]> getTile(final String map, final int z, final int x, final int y) {
 
 		return restClient.get()
-						.uri(osMapsProperties.getApiUrl() + "/{map}/{z}/{x}/{y}.png?key={key}",
-										map, z, x, y, osMapsProperties.getApiKey())
+						.uri(mapBoxProperties.getApiUrl() + "/{map}/tiles/512/{z}/{x}/{y}@2x?access_token={key}",
+										map, z, x, y, mapBoxProperties.getApiKey())
 						.retrieve()
 						.toEntity(byte[].class);
 	}

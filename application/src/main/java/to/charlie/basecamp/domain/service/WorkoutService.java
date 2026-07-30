@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import to.charlie.basecamp.domain.model.dto.WorkoutSearchCriteriaDto;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
 import to.charlie.basecamp.domain.model.dto.workout.RoutePoint;
 import to.charlie.basecamp.domain.model.dto.workout.SeriesPoint;
@@ -17,7 +18,6 @@ import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutEventEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutStatisticEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutStatisticId;
-import to.charlie.basecamp.domain.model.query.WorkoutSearchCriteria;
 import to.charlie.basecamp.domain.model.mapper.TrackMapper;
 import to.charlie.basecamp.domain.model.mapper.WorkoutMapper;
 import to.charlie.basecamp.infrastructure.dal.dao.TrackDao;
@@ -57,7 +57,7 @@ public class WorkoutService {
 		return workoutDao.findAllOrdered(pageable);
 	}
 
-	public Page<WorkoutEntity> searchWorkouts(final WorkoutSearchCriteria criteria, final Pageable pageable) {
+	public Page<WorkoutEntity> searchWorkouts(final WorkoutSearchCriteriaDto criteria, final Pageable pageable) {
 		return workoutDao.search(criteria, pageable);
 	}
 
