@@ -36,6 +36,10 @@ interface BaseLayer {
     attribution: string;
     projection: Projection;
     maxZoom: number;
+    // Deepest zoom the tile server actually has, when that is shallower than
+    // maxZoom. Leaflet upscales the last real tiles past this instead of
+    // requesting ones that 404. Omitted when the layer covers its full range.
+    maxNativeZoom?: number;
     // Served by our own backend, so the request needs the access token. Public tile
     // servers get nothing.
     authenticated: boolean;
@@ -43,16 +47,18 @@ interface BaseLayer {
 
 const BNG_MAX_ZOOM = resolutions.length - 1;
 const WEB_MAX_ZOOM = 19;
+const LEISURE_MAX_NATIVE_ZOOM = 9;
 
 const OS_TILE_URL = `${appConfig.apiBase}/tiles/{layer}/{z}/{x}/{y}.png`;
 
-function osLayer(name: string, id: string): BaseLayer {
+function osLayer(name: string, id: string, maxNativeZoom?: number): BaseLayer {
     return {
         name,
         url: OS_TILE_URL.replace('{layer}', id),
         attribution: '&copy; Ordnance Survey',
         projection: 'bng',
         maxZoom: BNG_MAX_ZOOM,
+        maxNativeZoom,
         authenticated: true,
     };
 }
@@ -70,7 +76,9 @@ function tileUrl(layer: BaseLayer, accessToken: string | null): string {
 
 const BASE_LAYERS: BaseLayer[] = [
     osLayer('Outdoor', 'Outdoor_27700'),
-    osLayer('Leisure', 'Leisure_27700'),
+    // The only 27700 layer OS does not publish to zoom 13; it stops at 9
+    // (1.75 m/px) on the Premium plan, and at 5 on OpenData.
+    osLayer('Leisure', 'Leisure_27700', LEISURE_MAX_NATIVE_ZOOM),
     osLayer('Road', 'Road_27700'),
     osLayer('Light', 'Light_27700'),
     {
@@ -493,6 +501,7 @@ export default function MapPage() {
                     key={layer.name}
                     url={tileUrl(layer, accessToken)}
                     maxZoom={layer.maxZoom}
+                    maxNativeZoom={layer.maxNativeZoom}
                     attribution={layer.attribution}
                     eventHandlers={{tileerror: onTileError}}
                 />
