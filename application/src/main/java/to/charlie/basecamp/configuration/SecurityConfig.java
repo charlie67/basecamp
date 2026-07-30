@@ -11,7 +11,11 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Duration;
@@ -51,13 +55,29 @@ public class SecurityConfig {
 		http
 						.authorizeHttpRequests(auth -> auth
 										.requestMatchers("/actuator/health", "/actuator/info").permitAll()
-										.requestMatchers(HttpMethod.GET, "/tiles/*/*/*/*.png").permitAll()
 										.anyRequest().authenticated())
-						.oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+						.oauth2ResourceServer(oauth2 -> oauth2
+										.bearerTokenResolver(tileAwareBearerTokenResolver())
+										.jwt(Customizer.withDefaults()))
 						.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 						.csrf(AbstractHttpConfigurer::disable);
 
 		return http.build();
+	}
+
+	/**
+	 * Accepts the access token as an {@code ?access_token=} query parameter, but only on tile
+	 * requests.
+	 */
+	private BearerTokenResolver tileAwareBearerTokenResolver() {
+		final DefaultBearerTokenResolver headerOnly = new DefaultBearerTokenResolver();
+
+		final DefaultBearerTokenResolver withQueryParameter = new DefaultBearerTokenResolver();
+		withQueryParameter.setAllowUriQueryParameter(true);
+
+		final RequestMatcher tiles = PathPatternRequestMatcher.pathPattern(HttpMethod.GET, "/tiles/*/*/*/*.png");
+
+		return request -> tiles.matches(request) ? withQueryParameter.resolve(request) : headerOnly.resolve(request);
 	}
 
 	@Bean

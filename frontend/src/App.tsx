@@ -4,7 +4,7 @@ import {useAuth} from 'react-oidc-context';
 import Layout from './components/Layout.tsx';
 import WorkoutsPage from './pages/WorkoutsPage.tsx';
 import MapPage from './pages/MapPage.tsx';
-import {setAccessToken} from './auth/token.ts';
+import {setAccessToken, setRenewHandler, useAccessToken} from './auth/token.ts';
 import {appConfig} from './config.ts';
 
 function Splash({label, onRetry}: { label: string; onRetry?: () => void }) {
@@ -41,8 +41,18 @@ function AppRoutes() {
 function AuthGate() {
     const auth = useAuth();
     const startedSignin = useRef(false);
+    const accessToken = auth.user?.access_token ?? null;
+    const storedToken = useAccessToken();
 
-    setAccessToken(auth.user?.access_token ?? null);
+    useEffect(() => {
+        setAccessToken(accessToken);
+    }, [accessToken]);
+
+    // Lets the map ask for a renewal when a tile 401s; see `renewIfExpired`.
+    useEffect(() => {
+        setRenewHandler(auth.signinSilent);
+        return () => setRenewHandler(null);
+    }, [auth.signinSilent]);
 
     const signIn = useCallback(async () => {
         await auth.removeUser();
@@ -68,6 +78,14 @@ function AuthGate() {
                 onRetry={() => void signIn()}
             />
         );
+    }
+
+    // Hold the routes back until the store actually holds the token, so the first
+    // workout fetches and tile loads don't fire unauthenticated. This only bites on
+    // initial sign-in: on a silent renew `storedToken` still holds the previous,
+    // still-valid token, so the tree stays mounted and the map keeps its tiles.
+    if (!storedToken) {
+        return <Splash label="Loading…"/>;
     }
 
     return <AppRoutes/>;

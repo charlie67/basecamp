@@ -1,9 +1,10 @@
-import {useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import proj4 from 'proj4';
 import 'proj4leaflet';
 import L from 'leaflet';
 import {MapContainer, TileLayer, Pane, Polyline, CircleMarker, useMap, useMapEvent} from 'react-leaflet';
 import {appConfig} from '../config.ts';
+import {renewIfExpired, useAccessToken} from '../auth/token.ts';
 import type {Workout} from '../api/workouts.ts';
 import {useWorkoutStore} from '../store/workoutStore.ts';
 import WorkoutDetailPanel from '../components/WorkoutDetailPanel.tsx';
@@ -35,6 +36,9 @@ interface BaseLayer {
     attribution: string;
     projection: Projection;
     maxZoom: number;
+    // Served by our own backend, so the request needs the access token. Public tile
+    // servers get nothing.
+    authenticated: boolean;
 }
 
 const BNG_MAX_ZOOM = resolutions.length - 1;
@@ -49,7 +53,19 @@ function osLayer(name: string, id: string): BaseLayer {
         attribution: '&copy; Ordnance Survey',
         projection: 'bng',
         maxZoom: BNG_MAX_ZOOM,
+        authenticated: true,
     };
+}
+
+// Leaflet loads tiles as plain `<img src>`, which cannot carry an Authorization
+// header, so the token for our own tile endpoint has to travel in the query
+// string. Kept out of the module-level layer definitions because it changes on
+// every silent renew.
+function tileUrl(layer: BaseLayer, accessToken: string | null): string {
+    if (!layer.authenticated || !accessToken) {
+        return layer.url;
+    }
+    return `${layer.url}?access_token=${encodeURIComponent(accessToken)}`;
 }
 
 const BASE_LAYERS: BaseLayer[] = [
@@ -63,6 +79,7 @@ const BASE_LAYERS: BaseLayer[] = [
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         projection: 'web',
         maxZoom: WEB_MAX_ZOOM,
+        authenticated: false,
     },
 ];
 
@@ -393,6 +410,7 @@ export default function MapPage() {
     const [layer, setLayer] = useState(savedLayer);
     const [viewport, setViewport] = useState(() => initialViewport(savedLayer()));
     const {workouts, selectedWorkoutId, selectWorkout, setScope, loading, hasMore} = useWorkoutStore();
+    const accessToken = useAccessToken();
     // The map walks every page, so `loading` alone drops between them and would
     // blink the indicator. It is only really settled once no pages are left.
     const fetching = loading || hasMore;
@@ -410,6 +428,20 @@ export default function MapPage() {
     const onMove = (next: Viewport) => {
         viewportRef.current = next;
     };
+
+    // Tiles are the one place an expired token can't be caught from a response: they
+    // load as images, so all we get is a bare error event. `renewIfExpired` decides
+    // whether it really was the token; this only makes sure a viewport's worth of
+    // tiles failing together asks once rather than twenty times. The renewal is the
+    // retry — a new token rebuilds the URL and Leaflet re-requests from there.
+    const renewedFor = useRef<string | null>(null);
+    const onTileError = useCallback(() => {
+        if (!accessToken || renewedFor.current === accessToken) {
+            return;
+        }
+        renewedFor.current = accessToken;
+        renewIfExpired();
+    }, [accessToken]);
 
     const selectLayer = (next: BaseLayer) => {
         localStorage.setItem(LAYER_STORAGE_KEY, next.name);
@@ -459,9 +491,10 @@ export default function MapPage() {
                 <WorkoutTracks/>
                 <TileLayer
                     key={layer.name}
-                    url={layer.url}
+                    url={tileUrl(layer, accessToken)}
                     maxZoom={layer.maxZoom}
                     attribution={layer.attribution}
+                    eventHandlers={{tileerror: onTileError}}
                 />
             </MapContainer>
         </div>
