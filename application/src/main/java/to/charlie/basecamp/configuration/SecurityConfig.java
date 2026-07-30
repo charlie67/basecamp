@@ -1,11 +1,10 @@
 package to.charlie.basecamp.configuration;
 
-import java.time.Duration;
-
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.security.oauth2.server.resource.autoconfigure.JwkSetUriJwtDecoderBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -14,6 +13,8 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.client.RestTemplate;
+
+import java.time.Duration;
 
 @Configuration
 @EnableWebSecurity
@@ -50,6 +51,7 @@ public class SecurityConfig {
 		http
 						.authorizeHttpRequests(auth -> auth
 										.requestMatchers("/actuator/health", "/actuator/info").permitAll()
+										.requestMatchers(HttpMethod.GET, "/tiles/*/*/*/*.png").permitAll()
 										.anyRequest().authenticated())
 						.oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
 						.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
