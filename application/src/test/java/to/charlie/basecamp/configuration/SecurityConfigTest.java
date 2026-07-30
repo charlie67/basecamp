@@ -14,11 +14,13 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import to.charlie.basecamp.domain.model.ProviderEnum;
 import to.charlie.basecamp.domain.service.MapTileService;
 import to.charlie.basecamp.infrastructure.rest.controllers.MapTileController;
 
 import java.time.Instant;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
@@ -37,7 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 class SecurityConfigTest {
 
-	private static final String TILE = "/tiles/Outdoor_27700/7/62/40.png";
+	private static final String TILE = "/tiles/MAP_BOX/satellite-v9/7/62/40.png";
 	private static final String TOKEN = "a.valid.token";
 
 	@Autowired
@@ -59,7 +61,7 @@ class SecurityConfigTest {
 						.build());
 		when(jwtDecoder.decode("not.a.token")).thenThrow(new BadJwtException("invalid signature"));
 
-		when(mapTileService.getMapTile(anyString(), anyInt(), anyInt(), anyInt()))
+		when(mapTileService.getMapTile(any(ProviderEnum.class), anyString(), anyInt(), anyInt(), anyInt()))
 						.thenReturn(ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).body(new byte[]{1, 2, 3}));
 	}
 

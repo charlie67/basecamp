@@ -75,7 +75,7 @@ public class SecurityConfig {
 		final DefaultBearerTokenResolver withQueryParameter = new DefaultBearerTokenResolver();
 		withQueryParameter.setAllowUriQueryParameter(true);
 
-		final RequestMatcher tiles = PathPatternRequestMatcher.pathPattern(HttpMethod.GET, "/tiles/*/*/*/*.png");
+		final RequestMatcher tiles = PathPatternRequestMatcher.pathPattern(HttpMethod.GET, "/tiles/*/*/*/*/*.png");
 
 		return request -> tiles.matches(request) ? withQueryParameter.resolve(request) : headerOnly.resolve(request);
 	}
