@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -28,7 +29,7 @@ public interface WorkoutRepository extends JpaRepository<WorkoutEntity, UUID> {
 	Optional<WorkoutEntity> findByTypeAndStartDate(String type, Instant startDate);
 
 	/**
-	 * Paged listing filtered by an optional start-date range and an optional map viewport.
+	 * Listing filtered by an optional start-date range and an optional map viewport.
 	 * Every filter is independently optional: a null bound simply drops that predicate.
 	 *
 	 * <p>The viewport test asks whether any of the workout's route actually passes through the
@@ -66,11 +67,10 @@ public interface WorkoutRepository extends JpaRepository<WorkoutEntity, UUID> {
 									                point(cast(:maxLon as double precision), cast(:maxLat as double precision)))))
 									""",
 					nativeQuery = true)
-	Page<WorkoutEntity> search(@Param("fromDate") Instant fromDate,
+	List<WorkoutEntity> search(@Param("fromDate") Instant fromDate,
 	                           @Param("toDate") Instant toDate,
 	                           @Param("minLat") Double minLat,
 	                           @Param("maxLat") Double maxLat,
 	                           @Param("minLon") Double minLon,
-	                           @Param("maxLon") Double maxLon,
-	                           Pageable pageable);
+	                           @Param("maxLon") Double maxLon);
 }

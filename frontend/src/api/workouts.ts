@@ -41,15 +41,6 @@ export interface Workout {
   route_points: RoutePoint[];
 }
 
-export interface PagedResponse<T> {
-  content: T[];
-  page: number;
-  size: number;
-  total_elements: number;
-  total_pages: number;
-  last: boolean;
-}
-
 // Requests go through the Vite dev-server proxy (see vite.config.ts), which
 // forwards /api/* to the backend same-origin — so no CORS is involved.
 const API_BASE = appConfig.apiBase;
@@ -70,16 +61,28 @@ export interface WorkoutQuery {
   from?: string | null;
   to?: string | null;
   bounds?: MapBounds | null;
-  page: number;
 }
 
-async function getWorkoutPage(
-  path: string,
-  params: URLSearchParams,
+/**
+ * Filtered listing. Omitted filters are left off the query string entirely, which
+ * the backend reads as "no such predicate". The endpoint answers with every match
+ * in one response — the filters are what keeps the result small, not paging.
+ */
+export async function searchWorkouts(
+  query: WorkoutQuery,
   signal?: AbortSignal,
-): Promise<PagedResponse<Workout>> {
+): Promise<Workout[]> {
+  const params = new URLSearchParams();
+  if (query.from) params.set('from', query.from);
+  if (query.to) params.set('to', query.to);
+  if (query.bounds) {
+    for (const [key, value] of Object.entries(query.bounds)) {
+      params.set(key, String(value));
+    }
+  }
+
   const token = getAccessToken();
-  const response = await fetch(`${API_BASE}${path}?${params}`, {
+  const response = await fetch(`${API_BASE}/workouts/search?${params}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     signal,
   });
@@ -91,24 +94,4 @@ async function getWorkoutPage(
   }
 
   return response.json();
-}
-
-/**
- * Filtered listing. Omitted filters are left off the query string entirely, which
- * the backend reads as "no such predicate". Page size is fixed server-side.
- */
-export async function searchWorkouts(
-  query: WorkoutQuery,
-  signal?: AbortSignal,
-): Promise<PagedResponse<Workout>> {
-  const params = new URLSearchParams({ page: String(query.page) });
-  if (query.from) params.set('from', query.from);
-  if (query.to) params.set('to', query.to);
-  if (query.bounds) {
-    for (const [key, value] of Object.entries(query.bounds)) {
-      params.set(key, String(value));
-    }
-  }
-
-  return getWorkoutPage('/workouts/search', params, signal);
 }

@@ -5,15 +5,13 @@ Feature: Retrieve Workout
   Scenario: Search with no filters returns everything
     When I send an HTTP POST request to "/workouts" with the body from file: "workouts/hiking-summary.json"
     Then "RESPONSE_STATUS" should be "201"
-    # size is fixed server-side, so asking for a different one changes nothing.
-    When I send an HTTP GET request to "/workouts/search?size=500"
+    # Search is not paged: every match comes back in one array, so the filters are
+    # what keeps the response small.
+    When I send an HTTP GET request to "/workouts/search"
     Then "RESPONSE_STATUS" should be "200"
     And the response body should contain the following fields:
-      | content[0].type | hiking |
-      | total_elements  | 1      |
-      | size            | 20     |
-      | page            | 0      |
-      | last            | true   |
+      | $[0].type  | hiking |
+      | $.length() | 1      |
 
   Scenario: Search narrows the listing to a date range
     When I send an HTTP POST request to "/workouts" with the body from file: "workouts/hiking-summary.json"
@@ -23,20 +21,20 @@ Feature: Retrieve Workout
     When I send an HTTP GET request to "/workouts/search?from=2026-06-19T00:00:00Z&to=2026-06-20T00:00:00Z"
     Then "RESPONSE_STATUS" should be "200"
     And the response body should contain the following fields:
-      | content[0].type | hiking |
-      | total_elements  | 1      |
+      | $[0].type  | hiking |
+      | $.length() | 1      |
 
     # The upper bound is exclusive, so the day the workout starts on excludes it.
     When I send an HTTP GET request to "/workouts/search?from=2026-06-18T00:00:00Z&to=2026-06-19T00:00:00Z"
     Then "RESPONSE_STATUS" should be "200"
     And the response body should contain the following fields:
-      | total_elements | 0 |
+      | $.length() | 0 |
 
     # An open-ended range applies only the bound it was given.
     When I send an HTTP GET request to "/workouts/search?from=2026-06-01T00:00:00Z"
     Then "RESPONSE_STATUS" should be "200"
     And the response body should contain the following fields:
-      | total_elements | 1 |
+      | $.length() | 1 |
 
   Scenario: Search narrows the listing to the area shown on the map
     When I send an HTTP POST request to "/workouts" with the body from file: "workouts/hiking-summary.json"
@@ -49,20 +47,20 @@ Feature: Retrieve Workout
     When I send an HTTP GET request to "/workouts/search?min_lat=46.0&max_lat=46.3&min_lon=7.0&max_lon=7.3"
     Then "RESPONSE_STATUS" should be "200"
     And the response body should contain the following fields:
-      | content[0].type | hiking |
-      | total_elements  | 1      |
+      | $[0].type  | hiking |
+      | $.length() | 1      |
 
     # A viewport somewhere else does not show it.
     When I send an HTTP GET request to "/workouts/search?min_lat=51.4&max_lat=51.6&min_lon=-0.2&max_lon=0.05"
     Then "RESPONSE_STATUS" should be "200"
     And the response body should contain the following fields:
-      | total_elements | 0 |
+      | $.length() | 0 |
 
     # A half-supplied viewport is dropped rather than guessed at, leaving a date-only search.
     When I send an HTTP GET request to "/workouts/search?min_lat=51.4&max_lat=51.6"
     Then "RESPONSE_STATUS" should be "200"
     And the response body should contain the following fields:
-      | total_elements | 1 |
+      | $.length() | 1 |
 
   Scenario: Date and area filters combine
     When I send an HTTP POST request to "/workouts" with the body from file: "workouts/hiking-summary.json"
@@ -74,13 +72,13 @@ Feature: Retrieve Workout
     When I send an HTTP GET request to "/workouts/search?from=2026-06-19T00:00:00Z&to=2026-06-20T00:00:00Z&min_lat=46.0&max_lat=46.3&min_lon=7.0&max_lon=7.3"
     Then "RESPONSE_STATUS" should be "200"
     And the response body should contain the following fields:
-      | total_elements | 1 |
+      | $.length() | 1 |
 
     # Right area, wrong day: both predicates have to hold.
     When I send an HTTP GET request to "/workouts/search?from=2026-06-20T00:00:00Z&min_lat=46.0&max_lat=46.3&min_lon=7.0&max_lon=7.3"
     Then "RESPONSE_STATUS" should be "200"
     And the response body should contain the following fields:
-      | total_elements | 0 |
+      | $.length() | 0 |
 
 
   Scenario: The workout listing exposes the summary stats the map panel shows

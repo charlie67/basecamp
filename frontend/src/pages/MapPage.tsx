@@ -386,16 +386,15 @@ function MapClickClear({onClear}: {onClear: () => void}) {
 }
 
 function WorkoutTracks() {
-    const {workouts, hasMore, loading, loadMore, generation, selectedWorkoutId, selectWorkout} = useWorkoutStore();
+    const {workouts, needsLoad, loading, load, generation, selectedWorkoutId, selectWorkout} = useWorkoutStore();
 
-    // The map draws every match rather than paging, so it walks the pages until
-    // there are none left. Now that the viewport bounds the query this is a small
-    // set. `generation` restarts the walk whenever a filter changes.
+    // The search answers with every match at once — the viewport bounds keep that
+    // small. `generation` re-runs this whenever a filter changes.
     useEffect(() => {
-        if (!loading && hasMore) {
-            loadMore();
+        if (!loading && needsLoad) {
+            load();
         }
-    }, [loading, hasMore, loadMore, generation]);
+    }, [loading, needsLoad, load, generation]);
 
     const drawable = workouts
         .map((workout) => ({workout, color: trackColor(workout.id)}))
@@ -440,11 +439,11 @@ export default function MapPage() {
     const [ready, setReady] = useState(false);
     const [layer, setLayer] = useState(savedLayer);
     const [viewport, setViewport] = useState(() => initialViewport(savedLayer()));
-    const {workouts, selectedWorkoutId, selectWorkout, setScope, loading, hasMore} = useWorkoutStore();
+    const {workouts, selectedWorkoutId, selectWorkout, setScope, loading, needsLoad} = useWorkoutStore();
     const accessToken = useAccessToken();
-    // The map walks every page, so `loading` alone drops between them and would
-    // blink the indicator. It is only really settled once no pages are left.
-    const fetching = loading || hasMore;
+    // A filter change marks the results stale a render before the request starts, so
+    // `loading` alone would blink the indicator off in between.
+    const fetching = loading || needsLoad;
     const selectedWorkout = workouts.find((w) => w.id === selectedWorkoutId) ?? null;
 
     // Tells the store to apply the viewport bounds while this page is the one mounted.
