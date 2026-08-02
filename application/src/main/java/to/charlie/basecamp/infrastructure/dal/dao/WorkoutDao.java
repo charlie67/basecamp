@@ -32,15 +32,14 @@ public class WorkoutDao {
 	}
 
 	@Transactional(readOnly = true)
-	public Page<WorkoutEntity> search(final WorkoutSearchCriteriaDto criteria, final Pageable pageable) {
+	public List<WorkoutEntity> search(final WorkoutSearchCriteriaDto criteria) {
 		return workoutRepository.search(
 						criteria.from(),
 						criteria.to(),
 						criteria.minLat(),
 						criteria.maxLat(),
 						criteria.minLon(),
-						criteria.maxLon(),
-						pageable);
+						criteria.maxLon());
 	}
 
 	@Transactional

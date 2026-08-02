@@ -11,6 +11,7 @@ import to.charlie.basecamp.domain.model.dto.workout.SeriesPoint;
 import to.charlie.basecamp.domain.model.dto.workout.StatisticSummary;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkRequest;
 import to.charlie.basecamp.domain.model.dto.workout.WorkoutEvent;
+import to.charlie.basecamp.domain.model.dto.workout.WorkoutSummaryResponse;
 import to.charlie.basecamp.domain.model.entity.RoutePointEntity;
 import to.charlie.basecamp.domain.model.entity.SeriesPointEntity;
 import to.charlie.basecamp.domain.model.entity.TrackChunkEntity;
@@ -31,6 +32,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Application service for HealthKit workout ingest: maps the REST DTOs onto the
@@ -41,8 +44,7 @@ import java.util.UUID;
 public class WorkoutService {
 
 	/**
-	 * Route points are thinned before they go on the wire — the map does not need every fix.
-	 * Applied in the database rather than after loading, so the discarded fixes are never read.
+	 * Route points are thinned before they get sent. This is applied in the database
 	 */
 	private static final int ROUTE_POINT_STRIDE = 20;
 
@@ -53,19 +55,43 @@ public class WorkoutService {
 	private final RoutePointRepository routePointRepository;
 	private final WorkoutStatisticRepository workoutStatisticRepository;
 
-	public Page<WorkoutEntity> getWorkouts(final Pageable pageable) {
-		return workoutDao.findAllOrdered(pageable);
+	public Page<WorkoutSummaryResponse> getWorkouts(final Pageable pageable) {
+		final Page<WorkoutEntity> workoutPage = workoutDao.findAllOrdered(pageable);
+		return workoutPage.map(summaryConverter(workoutPage.getContent()));
 	}
 
-	public Page<WorkoutEntity> searchWorkouts(final WorkoutSearchCriteriaDto criteria, final Pageable pageable) {
-		return workoutDao.search(criteria, pageable);
+	public List<WorkoutSummaryResponse> searchWorkouts(final WorkoutSearchCriteriaDto criteria) {
+		final List<WorkoutEntity> workouts = workoutDao.search(criteria);
+		return workouts.stream()
+						.map(summaryConverter(workouts))
+						.toList();
+	}
+
+	private Function<WorkoutEntity, WorkoutSummaryResponse> summaryConverter(final List<WorkoutEntity> workouts) {
+		final List<UUID> workoutIds = workouts.stream()
+						.map(WorkoutEntity::getId)
+						.toList();
+		final Map<UUID, List<RoutePoint>> routePointsByWorkout = getRoutePointsByWorkoutIds(workoutIds);
+		final Map<UUID, List<WorkoutStatisticEntity>> statisticsByWorkout = getStatisticsByWorkoutIds(workoutIds);
+
+		return workout -> {
+			final List<RoutePoint> routePoints = routePointsByWorkout
+							.getOrDefault(workout.getId(), List.of());
+			final Map<String, StatisticSummary> statistics = statisticsByWorkout
+							.getOrDefault(workout.getId(), List.of())
+							.stream()
+							.collect(Collectors.toMap(
+											statistic -> statistic.getId().getName(),
+											workoutMapper::toStatisticSummary));
+			return workoutMapper.toSummaryResponse(workout, statistics, routePoints);
+		};
 	}
 
 	/**
 	 * The map's polylines for a page of workouts, already thinned to every
 	 * {@link #ROUTE_POINT_STRIDE}-th fix and grouped by workout.
 	 */
-	public Map<UUID, List<RoutePoint>> getRoutePointsByWorkoutIds(final Collection<UUID> workoutIds) {
+	private Map<UUID, List<RoutePoint>> getRoutePointsByWorkoutIds(final Collection<UUID> workoutIds) {
 		if (workoutIds.isEmpty()) {
 			return Map.of();
 		}
@@ -81,7 +107,7 @@ public class WorkoutService {
 		return grouped;
 	}
 
-	public Map<UUID, List<WorkoutStatisticEntity>> getStatisticsByWorkoutIds(final Collection<UUID> workoutIds) {
+	private Map<UUID, List<WorkoutStatisticEntity>> getStatisticsByWorkoutIds(final Collection<UUID> workoutIds) {
 		if (workoutIds.isEmpty()) {
 			return Map.of();
 		}

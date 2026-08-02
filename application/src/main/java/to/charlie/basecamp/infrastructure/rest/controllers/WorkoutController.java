@@ -2,7 +2,6 @@ package to.charlie.basecamp.infrastructure.rest.controllers;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,23 +15,17 @@ import to.charlie.basecamp.domain.model.dto.WorkoutSearchCriteriaDto;
 import to.charlie.basecamp.domain.model.dto.common.PagedResponse;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutResponse;
-import to.charlie.basecamp.domain.model.dto.workout.RoutePoint;
-import to.charlie.basecamp.domain.model.dto.workout.StatisticSummary;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkRequest;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkResponse;
 import to.charlie.basecamp.domain.model.dto.workout.WorkoutSummaryResponse;
 import to.charlie.basecamp.domain.model.entity.TrackChunkEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
-import to.charlie.basecamp.domain.model.entity.WorkoutStatisticEntity;
-import to.charlie.basecamp.domain.model.mapper.WorkoutMapper;
 import to.charlie.basecamp.domain.service.WorkoutService;
 
 import java.time.Instant;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
+import java.util.function.Function;
 
 import static org.springframework.http.HttpStatus.CREATED;
 
@@ -43,7 +36,6 @@ import static org.springframework.http.HttpStatus.CREATED;
 public class WorkoutController {
 
 	private final WorkoutService workoutService;
-	private final WorkoutMapper workoutMapper;
 
 	@GetMapping
 	public ResponseEntity<PagedResponse<WorkoutSummaryResponse>> getWorkouts(
@@ -53,11 +45,11 @@ public class WorkoutController {
 
 		final var workoutPage = workoutService.getWorkouts(PageRequest.of(safePage, 20));
 
-		return ResponseEntity.ok(toPagedResponse(workoutPage));
+		return ResponseEntity.ok(PagedResponse.from(workoutPage, Function.identity()));
 	}
 
 	@GetMapping("/search")
-	public ResponseEntity<PagedResponse<WorkoutSummaryResponse>> searchWorkouts(
+	public ResponseEntity<List<WorkoutSummaryResponse>> searchWorkouts(
 					@RequestParam(required = false) final Instant from,
 					@RequestParam(required = false) final Instant to,
 					// Request params are not covered by the snake-case Jackson strategy, which only
@@ -65,54 +57,12 @@ public class WorkoutController {
 					@RequestParam(name = "min_lat", required = false) final Double minLat,
 					@RequestParam(name = "max_lat", required = false) final Double maxLat,
 					@RequestParam(name = "min_lon", required = false) final Double minLon,
-					@RequestParam(name = "max_lon", required = false) final Double maxLon,
-					@RequestParam(defaultValue = "0") final int page) {
-		log.info("GET /workouts/search - from={} to={} bbox=[{},{} {},{}] page={}",
-						from, to, minLat, minLon, maxLat, maxLon, page);
-		final int safePage = Math.max(page, 0);
+					@RequestParam(name = "max_lon", required = false) final Double maxLon) {
+		log.info("GET /workouts/search - from={} to={} bbox=[{},{} {},{}]",
+						from, to, minLat, minLon, maxLat, maxLon);
 		final WorkoutSearchCriteriaDto criteria = WorkoutSearchCriteriaDto.of(from, to, minLat, maxLat, minLon, maxLon);
 
-		final var workoutPage = workoutService.searchWorkouts(criteria, PageRequest.of(safePage, 20));
-
-		return ResponseEntity.ok(toPagedResponse(workoutPage));
-	}
-
-	private PagedResponse<WorkoutSummaryResponse> toPagedResponse(final Page<WorkoutEntity> workoutPage) {
-		final List<UUID> workoutIds = workoutPage.getContent().stream()
-						.map(WorkoutEntity::getId)
-						.toList();
-		final Map<UUID, List<RoutePoint>> routePointsByWorkout =
-						workoutService.getRoutePointsByWorkoutIds(workoutIds);
-		final Map<UUID, List<WorkoutStatisticEntity>> statisticsByWorkout =
-						workoutService.getStatisticsByWorkoutIds(workoutIds);
-
-		return PagedResponse.from(
-						workoutPage,
-						workout -> {
-							final List<RoutePoint> routePoints = routePointsByWorkout
-											.getOrDefault(workout.getId(), Collections.emptyList());
-							final Map<String, StatisticSummary> statistics = statisticsByWorkout
-											.getOrDefault(workout.getId(), Collections.emptyList())
-											.stream()
-											.collect(Collectors.toMap(
-															statistic -> statistic.getId().getName(),
-															workoutMapper::toStatisticSummary));
-							return WorkoutSummaryResponse.builder()
-											.id(workout.getId())
-											.type(workout.getType())
-											.startDate(workout.getStartDate())
-											.endDate(workout.getEndDate())
-											.durationSeconds(workout.getDurationSeconds())
-											.distanceM(workout.getDistanceM())
-											.elevationGainM(workout.getElevationGainM())
-											.elevationLossM(workout.getElevationLossM())
-											.activeCalories(workout.getActiveCalories())
-											.basalCalories(workout.getBasalCalories())
-											.routePointCount(workout.getRoutePointCount())
-											.statistics(statistics)
-											.routePoints(routePoints)
-											.build();
-						});
+		return ResponseEntity.ok(workoutService.searchWorkouts(criteria));
 	}
 
 	@PostMapping

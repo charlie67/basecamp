@@ -3,12 +3,16 @@ package to.charlie.basecamp.domain.model.mapper;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
+import to.charlie.basecamp.domain.model.dto.workout.RoutePoint;
 import to.charlie.basecamp.domain.model.dto.workout.StatisticSummary;
 import to.charlie.basecamp.domain.model.dto.workout.WorkoutEvent;
+import to.charlie.basecamp.domain.model.dto.workout.WorkoutSummaryResponse;
 import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutEventEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutStatisticEntity;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -39,6 +43,16 @@ public interface WorkoutMapper {
 	WorkoutStatisticEntity toStatisticEntity(StatisticSummary summary);
 
 	StatisticSummary toStatisticSummary(WorkoutStatisticEntity entity);
+
+	/**
+	 * Route points and statistics live in their own tables and are batch-loaded per request,
+	 * so they come in as separate sources rather than off the workout row.
+	 */
+	@Mapping(target = "statistics", source = "statistics")
+	@Mapping(target = "routePoints", source = "routePoints")
+	WorkoutSummaryResponse toSummaryResponse(WorkoutEntity workout,
+																					 Map<String, StatisticSummary> statistics,
+																					 List<RoutePoint> routePoints);
 
 	@Mapping(target = "id", ignore = true)
 	@Mapping(target = "workout", ignore = true)

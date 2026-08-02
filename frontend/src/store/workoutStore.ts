@@ -16,21 +16,22 @@ export type WorkoutScope = 'map' | 'list';
 
 interface WorkoutState {
   workouts: Workout[];
-  nextPage: number;
   totalElements: number;
-  hasMore: boolean;
+  // True while the current filters have no results behind them yet, which is what
+  // asks the map to fetch. Cleared once the search answers.
+  needsLoad: boolean;
   loading: boolean;
   error: string | null;
   filters: DateFilters;
   bounds: MapBounds | null;
   scope: WorkoutScope;
-  // Bumped on every filter change. Pages in flight when it changes are discarded,
-  // and the map's load-everything effect watches it so it restarts on a new filter.
+  // Bumped on every filter change. A search in flight when it changes is discarded,
+  // and the map's load effect watches it so it restarts on a new filter.
   generation: number;
   // Which track the map has selected. Lives here rather than in MapPage because
   // the map is remounted whenever the base layer changes projection.
   selectedWorkoutId: string | null;
-  loadMore: () => Promise<void>;
+  load: () => Promise<void>;
   setDateFilters: (filters: DateFilters) => void;
   setBounds: (bounds: MapBounds) => void;
   setScope: (scope: WorkoutScope) => void;
@@ -62,24 +63,23 @@ function sameBounds(a: MapBounds | null, b: MapBounds): boolean {
   );
 }
 
-// Aborts whatever page is in flight; the store treats the resulting AbortError as
+// Aborts whatever search is in flight; the store treats the resulting AbortError as
 // an expected outcome rather than a failure worth showing.
 let inFlight: AbortController | null = null;
 
 export const useWorkoutStore = create<WorkoutState>((set, get) => {
-  // Restarts the query from page 0 and invalidates any page still in flight, so a
-  // filter change can never have its old results appended after the new ones.
+  // Asks for the new query and invalidates any search still in flight, so a filter
+  // change can never have its old results land after the new ones.
   //
-  // What is already on screen is deliberately left alone: the first page of the new
-  // query replaces it when it lands. Clearing here instead would blank every track
-  // for the duration of the request, which reads as the map breaking every time it
-  // is panned or the date is changed.
+  // What is already on screen is deliberately left alone: the new results replace it
+  // when they land. Clearing here instead would blank every track for the duration
+  // of the request, which reads as the map breaking every time it is panned or the
+  // date is changed.
   const reset = () => {
     inFlight?.abort();
     inFlight = null;
     set((state) => ({
-      nextPage: 0,
-      hasMore: true,
+      needsLoad: true,
       loading: false,
       error: null,
       generation: state.generation + 1,
@@ -88,9 +88,8 @@ export const useWorkoutStore = create<WorkoutState>((set, get) => {
 
   return {
     workouts: [],
-    nextPage: 0,
     totalElements: 0,
-    hasMore: true,
+    needsLoad: true,
     loading: false,
     error: null,
     filters: { from: null, to: null },
@@ -121,18 +120,17 @@ export const useWorkoutStore = create<WorkoutState>((set, get) => {
       reset();
     },
 
-    loadMore: async () => {
-      const { loading, hasMore, nextPage, filters, bounds, scope, generation } = get();
-      if (loading || !hasMore) return;
+    load: async () => {
+      const { loading, needsLoad, filters, bounds, scope, generation } = get();
+      if (loading || !needsLoad) return;
 
       const controller = new AbortController();
       inFlight = controller;
       set({ loading: true, error: null });
 
       try {
-        const result = await searchWorkouts(
+        const workouts = await searchWorkouts(
           {
-            page: nextPage,
             from: startOfDayIso(filters.from),
             to: endOfDayIso(filters.to),
             bounds: scope === 'map' ? bounds : null,
@@ -140,22 +138,19 @@ export const useWorkoutStore = create<WorkoutState>((set, get) => {
           controller.signal,
         );
 
-        // A filter changed while this page was loading; its results describe a
+        // A filter changed while this search was running; its results describe a
         // query nobody is asking for any more.
         if (get().generation !== generation) return;
 
-        const content = result.content ?? [];
-
-        set((state) => ({
-          // Page 0 is the first answer to a new query, so it swaps out whatever the
-          // previous one left on screen; later pages extend it. This is what lets
-          // the old tracks stay visible while the new ones are on their way.
-          workouts: nextPage === 0 ? content : [...state.workouts, ...content],
-          nextPage: (result.page ?? nextPage) + 1,
-          totalElements: result.total_elements ?? state.totalElements,
-          hasMore: !(result.last ?? true),
+        set({
+          // The whole result arrives at once, so it swaps out whatever the previous
+          // query left on screen. This is what lets the old tracks stay visible
+          // while the new ones are on their way.
+          workouts,
+          totalElements: workouts.length,
+          needsLoad: false,
           loading: false,
-        }));
+        });
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         if (get().generation !== generation) return;

@@ -2,7 +2,6 @@ import {useCallback, useEffect, useRef} from 'react';
 import {BrowserRouter, Navigate, Route, Routes} from 'react-router-dom';
 import {useAuth} from 'react-oidc-context';
 import Layout from './components/Layout.tsx';
-import WorkoutsPage from './pages/WorkoutsPage.tsx';
 import MapPage from './pages/MapPage.tsx';
 import {setAccessToken, setRenewHandler, useAccessToken} from './auth/token.ts';
 import {appConfig} from './config.ts';
@@ -29,10 +28,9 @@ function AppRoutes() {
         <BrowserRouter>
             <Routes>
                 <Route element={<Layout/>}>
-                    <Route path="/workouts" element={<WorkoutsPage/>}/>
                     <Route path="/map" element={<MapPage/>}/>
                 </Route>
-                <Route path="*" element={<Navigate to="/workouts" replace/>}/>
+                <Route path="*" element={<Navigate to="/map" replace/>}/>
             </Routes>
         </BrowserRouter>
     );
