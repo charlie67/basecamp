@@ -21,6 +21,8 @@ public record CreateWorkoutRequest(
         Double basalCalories,
         int routePointCount,
         String contentHash,
+        /// Null from clients that pre-date the field; stored as-is so it reads as stale.
+        Integer extractionVersion,
         WorkoutSource source,
         WorkoutDevice device,
         Map<String, Object> metadata,

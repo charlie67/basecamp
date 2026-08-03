@@ -18,6 +18,7 @@ import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutResponse;
 import to.charlie.basecamp.domain.model.dto.workout.MetricSample;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkRequest;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkResponse;
+import to.charlie.basecamp.domain.model.dto.workout.WorkoutManifestResponse;
 import to.charlie.basecamp.domain.model.dto.workout.WorkoutSummaryResponse;
 import to.charlie.basecamp.domain.model.entity.TrackChunkEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
@@ -72,6 +73,23 @@ public class WorkoutController {
 		log.info("GET /workouts/{}/series/{}", id, metric);
 
 		return ResponseEntity.ok(workoutService.getSeries(id, metric));
+	}
+
+	/**
+	 * What the server already holds for a workout, keyed by its HealthKit uuid, so a client can
+	 * decide whether it needs to upload at all - after a reinstall, or when backfilling a history
+	 * that is mostly current already.
+	 *
+	 * <p>A 404 means "not here, send it": the ordinary answer for a workout the server has never
+	 * seen, not an error worth retrying.
+	 */
+	@GetMapping("/by-healthkit-uuid/{healthkitUuid}")
+	public ResponseEntity<WorkoutManifestResponse> getManifest(@PathVariable final UUID healthkitUuid) {
+		log.info("GET /workouts/by-healthkit-uuid/{}", healthkitUuid);
+
+		return workoutService.getManifest(healthkitUuid)
+						.map(ResponseEntity::ok)
+						.orElseGet(() -> ResponseEntity.notFound().build());
 	}
 
 	@PostMapping

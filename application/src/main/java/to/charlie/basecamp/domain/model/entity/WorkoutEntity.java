@@ -76,6 +76,14 @@ public class WorkoutEntity {
 	@Column(name = "content_hash")
 	private String contentHash;
 
+	/**
+	 * The client extraction version the stored track was produced by. Null on rows that pre-date
+	 * the field, which reads as stale against any current version — {@code content_hash} covers
+	 * only the summary fields, so it cannot tell a caller whether the series is current.
+	 */
+	@Column(name = "extraction_version")
+	private Integer extractionVersion;
+
 	@Column(name = "source_name")
 	private String sourceName;
 

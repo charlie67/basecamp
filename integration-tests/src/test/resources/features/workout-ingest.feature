@@ -40,6 +40,37 @@ Feature: HealthKit workout ingest
     And the "workout" table should contain 1 row
     And the "workout_statistic" table should contain 2 rows
 
+  Scenario: The manifest reports what is stored so a client can skip an upload
+    # 404 is the ordinary answer for a workout the server has never seen.
+    When I send an HTTP GET request to "/workouts/by-healthkit-uuid/5B2E2A10-7C3D-4E9A-9F21-0A1B2C3D4E5F"
+    Then "RESPONSE_STATUS" should be "404"
+
+    When I send an HTTP POST request to "/workouts" with the body from file: "workouts/hiking-summary.json"
+    Then "RESPONSE_STATUS" should be "201"
+    And I store the value of "id" from the HTTP response as "WORKOUT_ID"
+
+    # Summary in, track not yet: complete enough to identify, not to skip.
+    When I send an HTTP GET request to "/workouts/by-healthkit-uuid/5B2E2A10-7C3D-4E9A-9F21-0A1B2C3D4E5F"
+    Then "RESPONSE_STATUS" should be "200"
+    And the response body should contain the following fields:
+      | id                 | {WORKOUT_ID} |
+      | content_hash       | 9f2c8a       |
+      | extraction_version | 2            |
+      | track_status       | PENDING      |
+      | received_chunks    | 0            |
+
+    When I send an HTTP POST request to "/workouts/{WORKOUT_ID}/track" with the body from file: "tracks/chunk-0.json"
+    Then "RESPONSE_STATUS" should be "200"
+
+    # received_chunks is counted, not read off the workout row, so it can disagree
+    # with expected_chunks when a track upload was interrupted.
+    When I send an HTTP GET request to "/workouts/by-healthkit-uuid/5B2E2A10-7C3D-4E9A-9F21-0A1B2C3D4E5F"
+    Then "RESPONSE_STATUS" should be "200"
+    And the response body should contain the following fields:
+      | track_status    | COMPLETE |
+      | expected_chunks | 1        |
+      | received_chunks | 1        |
+
   Scenario: A shorter re-upload discards the chunks left past the end of the new track
     # A re-sync re-chunks from whatever HealthKit returns at the time, so a track can come back
     # shorter than the one already stored — a workout whose GPS route fails to load degrades to a

@@ -12,6 +12,7 @@ import to.charlie.basecamp.domain.model.dto.workout.SeriesPoint;
 import to.charlie.basecamp.domain.model.dto.workout.StatisticSummary;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkRequest;
 import to.charlie.basecamp.domain.model.dto.workout.WorkoutEvent;
+import to.charlie.basecamp.domain.model.dto.workout.WorkoutManifestResponse;
 import to.charlie.basecamp.domain.model.dto.workout.WorkoutSummaryResponse;
 import to.charlie.basecamp.domain.model.entity.RoutePointEntity;
 import to.charlie.basecamp.domain.model.entity.SeriesPointEntity;
@@ -27,12 +28,14 @@ import to.charlie.basecamp.infrastructure.dal.dao.WorkoutDao;
 import to.charlie.basecamp.infrastructure.dal.projection.RoutePointProjection;
 import to.charlie.basecamp.infrastructure.dal.repository.RoutePointRepository;
 import to.charlie.basecamp.infrastructure.dal.repository.SeriesPointRepository;
+import to.charlie.basecamp.infrastructure.dal.repository.TrackChunkRepository;
 import to.charlie.basecamp.infrastructure.dal.repository.WorkoutStatisticRepository;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -56,6 +59,7 @@ public class WorkoutService {
 	private final RoutePointRepository routePointRepository;
 	private final SeriesPointRepository seriesPointRepository;
 	private final WorkoutStatisticRepository workoutStatisticRepository;
+	private final TrackChunkRepository trackChunkRepository;
 
 	public Page<WorkoutSummaryResponse> getWorkouts(final Pageable pageable) {
 		final Page<WorkoutEntity> workoutPage = workoutDao.findAllOrdered(pageable);
@@ -129,6 +133,31 @@ public class WorkoutService {
 			grouped.computeIfAbsent(statistic.getId().getWorkoutId(), k -> new ArrayList<>()).add(statistic);
 		}
 		return grouped;
+	}
+
+	/**
+	 * What is already stored for one HealthKit workout, or empty if it is unknown here.
+	 * <p>
+	 * Lets a client skip an upload it does not need to make — after a reinstall, or during a
+	 * backfill where most of the history is already current.
+	 *
+	 * <p>{@code receivedChunks} is counted rather than read off the workout row, because
+	 * {@code expected_chunks} records what the last upload <em>claimed</em> the track would be. The
+	 * two diverge precisely when a track upload was interrupted, which is the case a caller most
+	 * needs to tell apart from a complete one.
+	 */
+	public Optional<WorkoutManifestResponse> getManifest(final UUID healthkitUuid) {
+		return workoutDao.findByHealthkitUuid(healthkitUuid)
+						.map(workout -> WorkoutManifestResponse.builder()
+										.id(workout.getId())
+										.healthkitUuid(workout.getHealthkitUuid())
+										.contentHash(workout.getContentHash())
+										.extractionVersion(workout.getExtractionVersion())
+										.trackStatus(workout.getTrackStatus())
+										.expectedChunks(workout.getExpectedChunks())
+										.receivedChunks(trackChunkRepository.countByWorkoutId(workout.getId()))
+										.routePointCount(workout.getRoutePointCount())
+										.build());
 	}
 
 	public WorkoutEntity createWorkout(final CreateWorkoutRequest request) {

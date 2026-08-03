@@ -32,6 +32,11 @@ public class WorkoutDao {
 	}
 
 	@Transactional(readOnly = true)
+	public Optional<WorkoutEntity> findByHealthkitUuid(final UUID healthkitUuid) {
+		return workoutRepository.findByHealthkitUuid(healthkitUuid);
+	}
+
+	@Transactional(readOnly = true)
 	public List<WorkoutEntity> search(final WorkoutSearchCriteriaDto criteria) {
 		return workoutRepository.search(
 						criteria.from(),
