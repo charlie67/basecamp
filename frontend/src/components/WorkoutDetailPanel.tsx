@@ -1,4 +1,5 @@
-import type { Workout } from '../api/workouts.ts';
+import { useEffect, useState } from 'react';
+import { fetchSeries, type MetricSample, type Workout } from '../api/workouts.ts';
 import {
   formatCalories,
   formatDate,
@@ -9,7 +10,39 @@ import {
   formatPace,
   formatTimeOfDay,
 } from '../lib/format.ts';
-import ElevationProfile from './ElevationProfile.tsx';
+import { useWorkoutStore } from '../store/workoutStore.ts';
+import TrackProfile from './TrackProfile.tsx';
+
+const HEART_RATE_METRIC = 'heart_rate';
+
+/**
+ * The selected workout's heart rate samples, fetched on demand.
+ *
+ * The search endpoint carries every track in the viewport, so the series is left
+ * off it and asked for per workout — only ever the one whose panel is open. The
+ * summary's aggregate is the signal for whether to ask at all: no heart rate
+ * statistic means the walk recorded none, so there is nothing to go and get.
+ */
+function useHeartRate(workoutId: string, expected: boolean): MetricSample[] | null {
+  const [samples, setSamples] = useState<MetricSample[] | null>(null);
+
+  useEffect(() => {
+    // Clears first: without this the previous track's trace stays on screen under
+    // the new track's name until the request lands.
+    setSamples(null);
+    if (!expected) return;
+
+    const controller = new AbortController();
+    fetchSeries(workoutId, HEART_RATE_METRIC, controller.signal)
+      .then(setSamples)
+      // A failure here leaves the chart in its pending state rather than taking
+      // the panel down over a sparkline.
+      .catch(() => {});
+    return () => controller.abort();
+  }, [workoutId, expected]);
+
+  return samples;
+}
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -38,6 +71,10 @@ export default function WorkoutDetailPanel({
   onClose: () => void;
 }) {
   const heartRate = workout.statistics?.heart_rate ?? null;
+  const heartRateSeries = useHeartRate(workout.id, heartRate !== null);
+  // The action alone, so scrubbing does not re-render this panel from its own
+  // updates — only the map's marker subscribes to the index itself.
+  const scrubPoint = useWorkoutStore((state) => state.scrubPoint);
 
   return (
     <div className="absolute bottom-3 left-3 z-[1000] w-72 max-w-[calc(100%-1.5rem)] rounded-lg border border-slate-700 bg-slate-900/90 p-4 shadow-lg backdrop-blur">
@@ -79,9 +116,12 @@ export default function WorkoutDetailPanel({
       </div>
 
       <div className="mt-3 border-t border-slate-800 pt-3 empty:hidden">
-        <ElevationProfile
+        <TrackProfile
           points={workout.route_points ?? []}
           distanceM={workout.distance_m}
+          heartRate={heartRateSeries}
+          expectHeartRate={heartRate !== null}
+          onScrub={scrubPoint}
         />
       </div>
     </div>

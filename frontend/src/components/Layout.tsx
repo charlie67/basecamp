@@ -3,7 +3,6 @@ import {useAuth} from 'react-oidc-context';
 
 const navLinks = [
     {to: '/map', label: 'Map'},
-    {to: '/workouts', label: 'Workouts'},
 ];
 
 export default function Layout() {

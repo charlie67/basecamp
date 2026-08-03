@@ -15,6 +15,7 @@ import to.charlie.basecamp.domain.model.dto.WorkoutSearchCriteriaDto;
 import to.charlie.basecamp.domain.model.dto.common.PagedResponse;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutResponse;
+import to.charlie.basecamp.domain.model.dto.workout.MetricSample;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkRequest;
 import to.charlie.basecamp.domain.model.dto.workout.TrackChunkResponse;
 import to.charlie.basecamp.domain.model.dto.workout.WorkoutSummaryResponse;
@@ -65,9 +66,17 @@ public class WorkoutController {
 		return ResponseEntity.ok(workoutService.searchWorkouts(criteria));
 	}
 
+	@GetMapping("/{id}/series/{metric}")
+	public ResponseEntity<List<MetricSample>> getSeries(@PathVariable final UUID id,
+	                                                    @PathVariable final String metric) {
+		log.info("GET /workouts/{}/series/{}", id, metric);
+
+		return ResponseEntity.ok(workoutService.getSeries(id, metric));
+	}
+
 	@PostMapping
 	public ResponseEntity<CreateWorkoutResponse> createWorkout(@RequestBody final CreateWorkoutRequest request) {
-		log.info("POST /workouts - upserting workout healthkit_uuid={}", request.healthkitUuid());
+		log.info("POST /workouts - adding workout healthkit_uuid={}", request.healthkitUuid());
 		final WorkoutEntity workout = workoutService.createWorkout(request);
 
 		return ResponseEntity

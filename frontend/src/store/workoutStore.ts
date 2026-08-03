@@ -31,11 +31,16 @@ interface WorkoutState {
   // Which track the map has selected. Lives here rather than in MapPage because
   // the map is remounted whenever the base layer changes projection.
   selectedWorkoutId: string | null;
+  // Index into the selected workout's route_points of the sample being scrubbed
+  // on the elevation profile, so the map can mark where on the route it is. The
+  // profile sits outside the MapContainer, so this is the only thing joining them.
+  scrubbedPointIndex: number | null;
   load: () => Promise<void>;
   setDateFilters: (filters: DateFilters) => void;
   setBounds: (bounds: MapBounds) => void;
   setScope: (scope: WorkoutScope) => void;
   selectWorkout: (id: string | null) => void;
+  scrubPoint: (index: number | null) => void;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -97,8 +102,12 @@ export const useWorkoutStore = create<WorkoutState>((set, get) => {
     scope: 'list',
     generation: 0,
     selectedWorkoutId: null,
+    scrubbedPointIndex: null,
 
-    selectWorkout: (id) => set({ selectedWorkoutId: id }),
+    // Any index still held belongs to the track being replaced, so it goes with it.
+    selectWorkout: (id) => set({ selectedWorkoutId: id, scrubbedPointIndex: null }),
+
+    scrubPoint: (index) => set({ scrubbedPointIndex: index }),
 
     setDateFilters: (filters) => {
       const current = get().filters;

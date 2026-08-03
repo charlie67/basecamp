@@ -1,0 +1,27 @@
+{
+  "healthkit_uuid": "5B2E2A10-7C3D-4E9A-9F21-0A1B2C3D4E5F",
+  "sequence": 2,
+  "chunk_count": 3,
+  "final": true,
+  "start": "2026-06-19T12:00:00Z",
+  "end": "2026-06-19T12:30:00Z",
+  "route": [
+    {
+      "t": "2026-06-19T12:00:00Z", "lat": 46.30, "lon": 7.1, "altitude_m": 1500, "ellipsoidal_altitude_m": 1550,
+      "horizontal_accuracy_m": 5, "vertical_accuracy_m": 8, "speed_mps": 1.2, "speed_accuracy_mps": 0.5,
+      "course_deg": 90, "course_accuracy_deg": 5
+    },
+    {
+      "t": "2026-06-19T12:10:00Z", "lat": 46.30, "lon": 7.2, "altitude_m": 1502, "ellipsoidal_altitude_m": 1552,
+      "horizontal_accuracy_m": 5, "vertical_accuracy_m": 8, "speed_mps": 1.3, "speed_accuracy_mps": 0.5,
+      "course_deg": 91, "course_accuracy_deg": 5
+    }
+  ],
+  "series": {
+    "heart_rate": [
+      { "start": "2026-06-19T12:00:00Z", "end": "2026-06-19T12:00:01Z", "value": 120 },
+      { "start": "2026-06-19T12:00:01Z", "end": "2026-06-19T12:00:02Z", "value": 121 }
+    ]
+  },
+  "events": []
+}

@@ -6,6 +6,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import to.charlie.basecamp.domain.model.dto.WorkoutSearchCriteriaDto;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
+import to.charlie.basecamp.domain.model.dto.workout.MetricSample;
 import to.charlie.basecamp.domain.model.dto.workout.RoutePoint;
 import to.charlie.basecamp.domain.model.dto.workout.SeriesPoint;
 import to.charlie.basecamp.domain.model.dto.workout.StatisticSummary;
@@ -25,6 +26,7 @@ import to.charlie.basecamp.infrastructure.dal.dao.TrackDao;
 import to.charlie.basecamp.infrastructure.dal.dao.WorkoutDao;
 import to.charlie.basecamp.infrastructure.dal.projection.RoutePointProjection;
 import to.charlie.basecamp.infrastructure.dal.repository.RoutePointRepository;
+import to.charlie.basecamp.infrastructure.dal.repository.SeriesPointRepository;
 import to.charlie.basecamp.infrastructure.dal.repository.WorkoutStatisticRepository;
 
 import java.util.ArrayList;
@@ -43,16 +45,16 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class WorkoutService {
 
-	/**
-	 * Route points are thinned before they get sent. This is applied in the database
-	 */
 	private static final int ROUTE_POINT_STRIDE = 20;
+
+	private static final int MAX_SERIES_SAMPLES = 600;
 
 	private final WorkoutMapper workoutMapper;
 	private final TrackMapper trackMapper;
 	private final WorkoutDao workoutDao;
 	private final TrackDao trackDao;
 	private final RoutePointRepository routePointRepository;
+	private final SeriesPointRepository seriesPointRepository;
 	private final WorkoutStatisticRepository workoutStatisticRepository;
 
 	public Page<WorkoutSummaryResponse> getWorkouts(final Pageable pageable) {
@@ -64,6 +66,14 @@ public class WorkoutService {
 		final List<WorkoutEntity> workouts = workoutDao.search(criteria);
 		return workouts.stream()
 						.map(summaryConverter(workouts))
+						.toList();
+	}
+
+	public List<MetricSample> getSeries(final UUID workoutId, final String metric) {
+		return seriesPointRepository
+						.findThinnedByWorkoutIdAndMetric(workoutId, metric, MAX_SERIES_SAMPLES)
+						.stream()
+						.map(sample -> new MetricSample(sample.getT(), sample.getE(), sample.getValue()))
 						.toList();
 	}
 

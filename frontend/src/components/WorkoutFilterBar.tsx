@@ -1,4 +1,5 @@
 import { useWorkoutStore } from '../store/workoutStore.ts';
+import { ALL_TIME, DATE_RANGE_PRESETS, matchPreset } from '../lib/dateRanges.ts';
 
 // Native date inputs render their picker chrome for a light page unless the
 // element opts into the dark scheme, which leaves the calendar icon almost
@@ -18,6 +19,18 @@ interface Props {
 export default function WorkoutFilterBar({ floating = false }: Props) {
   const { filters, setDateFilters, totalElements } = useWorkoutStore();
   const active = filters.from !== null || filters.to !== null;
+  // 'custom' whenever the dates were typed rather than picked, which keeps the
+  // menu from claiming a range the inputs no longer hold.
+  const preset = matchPreset(filters);
+
+  const selectRange = (id: string) => {
+    if (id === ALL_TIME) {
+      setDateFilters({ from: null, to: null });
+      return;
+    }
+    const chosen = DATE_RANGE_PRESETS.find((p) => p.id === id);
+    if (chosen) setDateFilters(chosen.range());
+  };
 
   const container = floating
     ? 'absolute left-3 top-3 z-[1000] rounded-lg border border-slate-700 bg-slate-900/90 p-3 shadow-lg backdrop-blur'
@@ -26,6 +39,28 @@ export default function WorkoutFilterBar({ floating = false }: Props) {
   return (
     <div className={container}>
       <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5 text-sm text-slate-400">
+          Range
+          <select
+            className={INPUT_CLASS}
+            value={preset}
+            onChange={(e) => selectRange(e.target.value)}
+          >
+            <option value={ALL_TIME}>All time</option>
+            {DATE_RANGE_PRESETS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+            {/* Only offered as somewhere for the menu to sit while the dates are
+                hand-edited — picking it would have nothing to apply. */}
+            {preset === 'custom' && (
+              <option value="custom" disabled>
+                Custom
+              </option>
+            )}
+          </select>
+        </label>
         <label className="flex items-center gap-1.5 text-sm text-slate-400">
           From
           <input
@@ -55,9 +90,9 @@ export default function WorkoutFilterBar({ floating = false }: Props) {
             Clear
           </button>
         )}
-        {active && (
-          <span className="text-sm text-slate-500">{totalElements} matching</span>
-        )}
+        <span className="text-sm text-slate-500">
+          {totalElements} {totalElements === 1 ? 'workout' : 'workouts'}
+        </span>
       </div>
     </div>
   );

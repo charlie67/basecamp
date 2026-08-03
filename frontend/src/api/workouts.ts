@@ -15,6 +15,18 @@ export interface RoutePoint {
   course_accuracy_deg: number;
 }
 
+// One sample of a workout's time series. Short field names because a long walk
+// sends a few hundred of these: `t` and `e` bound the interval the value covers,
+// and `v` is the value in the metric's own unit (bpm for heart_rate).
+//
+// `e` equals `t` for the instantaneous readings a watch sends live, and is wider
+// on older exports that sent one value averaged over each track chunk.
+export interface MetricSample {
+  t: string;
+  e: string | null;
+  v: number;
+}
+
 // Per-metric aggregate from HealthKit, keyed by metric name (heart_rate,
 // active_energy_burned, ...). Which metrics are present varies by workout.
 export interface StatisticSummary {
@@ -91,6 +103,35 @@ export async function searchWorkouts(
   }
   if (!response.ok) {
     throw new Error(`Failed to load workouts (${response.status})`);
+  }
+
+  return response.json();
+}
+
+/**
+ * One metric's samples for a single workout, already thinned by the backend to a
+ * chart's worth of points.
+ *
+ * Deliberately its own request rather than part of the search: that answers with
+ * every track in the viewport, while a series is only ever wanted for the one
+ * workout whose panel is open. A workout that recorded nothing for the metric
+ * answers with an empty list.
+ */
+export async function fetchSeries(
+  workoutId: string,
+  metric: string,
+  signal?: AbortSignal,
+): Promise<MetricSample[]> {
+  const token = getAccessToken();
+  const response = await fetch(
+    `${API_BASE}/workouts/${encodeURIComponent(workoutId)}/series/${encodeURIComponent(metric)}`,
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to load ${metric} (${response.status})`);
   }
 
   return response.json();

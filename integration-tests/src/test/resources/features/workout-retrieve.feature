@@ -81,6 +81,36 @@ Feature: Retrieve Workout
       | $.length() | 0 |
 
 
+  Scenario: A workout's heart rate series is fetched on its own
+    When I send an HTTP POST request to "/workouts" with the body from file: "workouts/hiking-summary.json"
+    Then "RESPONSE_STATUS" should be "201"
+    And I store the value of "id" from the HTTP response as "WORKOUT_ID"
+    When I send an HTTP POST request to "/workouts/{WORKOUT_ID}/track" with the body from file: "tracks/chunk-0.json"
+    Then "RESPONSE_STATUS" should be "200"
+
+    # Kept off the search response, which carries every track in the viewport: the
+    # detail panel asks for the series of the one workout it has open.
+    When I send an HTTP GET request to "/workouts/{WORKOUT_ID}/series/heart_rate"
+    Then "RESPONSE_STATUS" should be "200"
+    And the response body should contain the following fields:
+      | $.length() | 3                    |
+      | $[0].t     | 2026-06-19T14:32:00Z |
+      | $[0].v     | 120.0                |
+      | $[2].v     | 125.0                |
+
+    # Both ends of the sample come back: older exports send one value averaged over a
+    # whole track chunk, and a chart given only the start cannot tell how much of the
+    # walk that value stands for.
+    And the response body should contain the following fields:
+      | $[0].e | 2026-06-19T14:32:01Z |
+
+    # A metric this workout never recorded is an empty series rather than a 404 —
+    # "no heart rate on this walk" is an ordinary answer.
+    When I send an HTTP GET request to "/workouts/{WORKOUT_ID}/series/step_count"
+    Then "RESPONSE_STATUS" should be "200"
+    And the response body should contain the following fields:
+      | $.length() | 0 |
+
   Scenario: The workout listing exposes the summary stats the map panel shows
     When I send an HTTP POST request to "/workouts" with the body from file: "workouts/hiking-summary.json"
     Then "RESPONSE_STATUS" should be "201"

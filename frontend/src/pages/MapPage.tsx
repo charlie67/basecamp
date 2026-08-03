@@ -2,7 +2,7 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import proj4 from 'proj4';
 import 'proj4leaflet';
 import L from 'leaflet';
-import {MapContainer, TileLayer, Pane, Polyline, CircleMarker, useMap, useMapEvent} from 'react-leaflet';
+import {MapContainer, TileLayer, Pane, Polyline, CircleMarker, ZoomControl, useMap, useMapEvent} from 'react-leaflet';
 import {appConfig} from '../config.ts';
 import {renewIfExpired, useAccessToken} from '../auth/token.ts';
 import type {Workout} from '../api/workouts.ts';
@@ -361,6 +361,26 @@ function Track({workout, color, selected, dimmed, onSelect}: {
     );
 }
 
+// Where the elevation profile is being scrubbed, marked on the route itself.
+// Subscribed to the index on its own so that dragging along the profile re-renders
+// this one marker rather than every track on the map.
+function ScrubMarker({workout}: {workout: Workout}) {
+    const index = useWorkoutStore((state) => state.scrubbedPointIndex);
+    // A reload while the pointer is down replaces the workout, and the profile's
+    // index can briefly outrun the track it came from.
+    const point = index === null ? undefined : workout.route_points[index];
+    if (!point) return null;
+
+    return (
+        <CircleMarker
+            center={[point.lat, point.lon]}
+            radius={6}
+            interactive={false}
+            pathOptions={{color: '#ffffff', weight: 3, fillColor: '#38bdf8', fillOpacity: 1}}
+        />
+    );
+}
+
 // The tracks already drawn stay put while a new query runs, so without this there
 // is nothing on screen to say the map is fetching a fresh set after a pan.
 function LoadingIndicator() {
@@ -386,7 +406,16 @@ function MapClickClear({onClear}: {onClear: () => void}) {
 }
 
 function WorkoutTracks() {
-    const {workouts, needsLoad, loading, load, generation, selectedWorkoutId, selectWorkout} = useWorkoutStore();
+    // Selected field by field rather than as one object: the scrub index also lives
+    // in this store and changes as fast as the pointer moves, and subscribing to the
+    // whole state would redraw every polyline along with it.
+    const workouts = useWorkoutStore((state) => state.workouts);
+    const needsLoad = useWorkoutStore((state) => state.needsLoad);
+    const loading = useWorkoutStore((state) => state.loading);
+    const load = useWorkoutStore((state) => state.load);
+    const generation = useWorkoutStore((state) => state.generation);
+    const selectedWorkoutId = useWorkoutStore((state) => state.selectedWorkoutId);
+    const selectWorkout = useWorkoutStore((state) => state.selectWorkout);
 
     // The search answers with every match at once — the viewport bounds keep that
     // small. `generation` re-runs this whenever a filter changes.
@@ -406,6 +435,7 @@ function WorkoutTracks() {
         ...drawable.filter(({workout}) => workout.id !== selectedWorkoutId),
         ...drawable.filter(({workout}) => workout.id === selectedWorkoutId),
     ];
+    const selected = drawable.find(({workout}) => workout.id === selectedWorkoutId)?.workout;
 
     return (
         <>
@@ -431,6 +461,8 @@ function WorkoutTracks() {
                     onSelect={() => selectWorkout(workout.id)}
                 />
             ))}
+            {/* Last, so insertion order keeps it painted over the tracks. */}
+            {selected && <ScrubMarker workout={selected}/>}
         </>
     );
 }
@@ -439,7 +471,14 @@ export default function MapPage() {
     const [ready, setReady] = useState(false);
     const [layer, setLayer] = useState(savedLayer);
     const [viewport, setViewport] = useState(() => initialViewport(savedLayer()));
-    const {workouts, selectedWorkoutId, selectWorkout, setScope, loading, needsLoad} = useWorkoutStore();
+    // Field by field, for the same reason as WorkoutTracks: this component renders
+    // the whole map, and must not be woken by the scrub index changing.
+    const workouts = useWorkoutStore((state) => state.workouts);
+    const selectedWorkoutId = useWorkoutStore((state) => state.selectedWorkoutId);
+    const selectWorkout = useWorkoutStore((state) => state.selectWorkout);
+    const setScope = useWorkoutStore((state) => state.setScope);
+    const loading = useWorkoutStore((state) => state.loading);
+    const needsLoad = useWorkoutStore((state) => state.needsLoad);
     const accessToken = useAccessToken();
     // A filter change marks the results stale a render before the request starts, so
     // `loading` alone would blink the indicator off in between.
@@ -515,8 +554,14 @@ export default function MapPage() {
                 maxZoom={layer.maxZoom}
                 crs={layer.projection === 'bng' ? bngCrs : L.CRS.EPSG3857}
                 className="h-full w-full"
+                // Leaflet's own zoom control sits top-left, where it is drawn over
+                // the filter bar floating in the same corner. The map's controls
+                // always paint above the overlays, so it is moved rather than
+                // stacked around: bottom-right is the one corner nothing else uses.
+                zoomControl={false}
                 whenReady={() => setReady(true)}
             >
+                <ZoomControl position="bottomright"/>
                 <MapPersistence projection={layer.projection} onMove={onMove}/>
                 <WorkoutTracks/>
                 <TileLayer

@@ -40,6 +40,37 @@ Feature: HealthKit workout ingest
     And the "workout" table should contain 1 row
     And the "workout_statistic" table should contain 2 rows
 
+  Scenario: A shorter re-upload discards the chunks left past the end of the new track
+    # A re-sync re-chunks from whatever HealthKit returns at the time, so a track can come back
+    # shorter than the one already stored — a workout whose GPS route fails to load degrades to a
+    # single routeless chunk where it once had several. The chunks past the new end have to go:
+    # route and series points are read back by workout_id, not by chunk, so anything left behind
+    # interleaves with the fresh data instead of being replaced by it.
+    When I send an HTTP POST request to "/workouts" with the body from file: "workouts/hiking-summary.json"
+    Then "RESPONSE_STATUS" should be "201"
+    And I store the value of "id" from the HTTP response as "WORKOUT_ID"
+
+    When I send an HTTP POST request to "/workouts/{WORKOUT_ID}/track" with the body from file: "tracks/resync-long-chunk-0.json"
+    Then "RESPONSE_STATUS" should be "200"
+    When I send an HTTP POST request to "/workouts/{WORKOUT_ID}/track" with the body from file: "tracks/resync-long-chunk-1.json"
+    Then "RESPONSE_STATUS" should be "200"
+    When I send an HTTP POST request to "/workouts/{WORKOUT_ID}/track" with the body from file: "tracks/resync-long-chunk-2.json"
+    Then "RESPONSE_STATUS" should be "200"
+    And the "track_chunk" table should contain 3 rows
+    And the "route_point" table should contain 6 rows
+    And the "series_point" table should contain 6 rows
+    And the only "workout" row should have "expected_chunks" equal to "3"
+
+    # Re-sync: one routeless chunk replacing all three.
+    When I send an HTTP POST request to "/workouts/{WORKOUT_ID}/track" with the body from file: "tracks/resync-short-chunk-0.json"
+    Then "RESPONSE_STATUS" should be "200"
+    # Sequences 1 and 2 are gone, not merely overwritten in place.
+    And the "track_chunk" table should contain 1 row
+    And the "route_point" table should contain 0 rows
+    And the "series_point" table should contain 4 rows
+    And the only "workout" row should have "expected_chunks" equal to "1"
+    And the only "workout" row should have "track_status" equal to "COMPLETE"
+
   Scenario: A workout re-sent under a fresh uuid is matched by its type and start time
     When I send an HTTP POST request to "/workouts" with the body from file: "workouts/hiking-summary.json"
     Then "RESPONSE_STATUS" should be "201"
