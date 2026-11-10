@@ -32,7 +32,7 @@ const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 // one they disagree on. The factors run 0–1.
 const DISAGREEMENT = 0.3;
 
-function modelName(model: string): { short: string; full: string } {
+export function modelName(model: string): { short: string; full: string } {
   return MODEL_NAMES[model] ?? { short: model, full: model };
 }
 

@@ -16,10 +16,33 @@ final class WeatherSeries {
 	private final Map<String, Object> hourly;
 	private final String model;
 
+	// Set instead of the above for a blend of other series.
+	private final List<WeatherSeries> parts;
+	private final double[] weights;
+
 	private WeatherSeries(final Map<String, Object> hourly, final String model) {
 		this.hourly = hourly;
 		this.model = model;
 		this.time = numbers(hourly.get("time"));
+		this.parts = null;
+		this.weights = null;
+	}
+
+	private WeatherSeries(final List<WeatherSeries> parts, final double[] weights) {
+		this.hourly = null;
+		this.model = null;
+		this.time = null;
+		this.parts = parts;
+		this.weights = weights;
+	}
+
+	/**
+	 * The weighted mean of several series, for the weather at a place between the points there
+	 * are forecasts for. A part with no value at the time asked about is left out of the mean
+	 * rather than counted as zero, as is a null part.
+	 */
+	static WeatherSeries blend(final List<WeatherSeries> parts, final double[] weights) {
+		return new WeatherSeries(parts, weights);
 	}
 
 	/**
@@ -37,6 +60,18 @@ final class WeatherSeries {
 
 	/** The variable linearly interpolated to unix time {@code ts}, or null where there is no value. */
 	Double valueAt(final String variable, final long ts) {
+		if (parts != null) {
+			double total = 0;
+			double totalWeight = 0;
+			for (int i = 0; i < parts.size(); i++) {
+				final Double value = parts.get(i) == null ? null : parts.get(i).valueAt(variable, ts);
+				if (value != null) {
+					total += value * weights[i];
+					totalWeight += weights[i];
+				}
+			}
+			return totalWeight > 0 ? Double.valueOf(total / totalWeight) : null;
+		}
 		final List<Number> values = values(variable);
 		if (values == null) {
 			return null;
@@ -57,6 +92,18 @@ final class WeatherSeries {
 	}
 
 	double totalBetween(final String variable, final long start, final long end) {
+		if (parts != null) {
+			double total = 0;
+			double totalWeight = 0;
+			for (int i = 0; i < parts.size(); i++) {
+				if (parts.get(i) == null) {
+					continue;
+				}
+				total += parts.get(i).totalBetween(variable, start, end) * weights[i];
+				totalWeight += weights[i];
+			}
+			return totalWeight > 0 ? total / totalWeight : 0;
+		}
 		final List<Number> values = values(variable);
 		if (values == null) {
 			return 0;

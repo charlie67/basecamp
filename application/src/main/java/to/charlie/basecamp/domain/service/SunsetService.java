@@ -37,7 +37,7 @@ import static org.springframework.http.HttpStatus.BAD_GATEWAY;
 @Slf4j
 public class SunsetService {
 
-	private static final int FORECAST_DAYS = 3;
+	static final int FORECAST_DAYS = 3;
 	// The air quality forecast runs out sooner than the weather one.
 	private static final int AIR_QUALITY_MAX_DAYS = 5;
 
@@ -154,7 +154,7 @@ public class SunsetService {
 	 * midnight, so shifting by the offset and reading the result as UTC recovers the date.
 	 */
 	@SuppressWarnings("unchecked")
-	private static List<LocalDate> dates(final Map<String, Object> forecast) {
+	static List<LocalDate> dates(final Map<String, Object> forecast) {
 		final int utcOffsetSeconds = ((Number) forecast.get("utc_offset_seconds")).intValue();
 		final List<Number> midnights = (List<Number>) ((Map<String, Object>) forecast.get("daily")).get("time");
 		return midnights.stream()
@@ -164,7 +164,7 @@ public class SunsetService {
 
 	/** Suffixed with the model when several were asked for and bare for one, like the hourly variables. */
 	@SuppressWarnings("unchecked")
-	private static List<Number> sunsets(final Map<String, Object> forecast, final String model) {
+	static List<Number> sunsets(final Map<String, Object> forecast, final String model) {
 		final Map<String, Object> daily = (Map<String, Object>) forecast.get("daily");
 		final Object perModel = daily.get("sunset_" + model);
 		return (List<Number>) (perModel != null ? perModel : daily.get("sunset"));
