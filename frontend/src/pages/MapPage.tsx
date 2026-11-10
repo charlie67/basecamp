@@ -10,6 +10,7 @@ import {useWorkoutStore} from '../store/workoutStore.ts';
 import WorkoutDetailPanel from '../components/WorkoutDetailPanel.tsx';
 import WorkoutFilterBar from '../components/WorkoutFilterBar.tsx';
 import type {DrapedLayer} from '../components/TerrainMap.tsx';
+import {paintField, type ScoreField} from '../lib/scoreField.ts';
 import {trackColor} from '../lib/trackColor.ts';
 import 'leaflet/dist/leaflet.css';
 
@@ -522,6 +523,63 @@ function WorkoutTracks() {
     );
 }
 
+const FIELD_PANE = 'score-field';
+// Screen pixels per pixel of the picture. The scores vary over kilometres, so a
+// coarse picture stretched smooth looks the same as a fine one and paints faster.
+const FIELD_SCALE = 4;
+// How far past the viewport the picture runs, as a fraction of its size, so a
+// drag does not at once pull a bare edge into view. Redrawn when the drag ends.
+const FIELD_PADDING = 0.25;
+// See-through enough to read the map under it, even where the colour is solid.
+const FIELD_OPACITY = 0.65;
+
+/**
+ * Colours the map by a field of scores. Drawn on a canvas of its own rather than
+ * as a Leaflet image overlay, which could only stretch a picture between two
+ * corners: here every pixel is asked where on the ground it is, so the gradient
+ * is right in British National Grid as well as Web Mercator.
+ */
+function ScoreFieldLayer({field}: {field: ScoreField}) {
+    const map = useMap();
+
+    useEffect(() => {
+        const pane = map.getPane(FIELD_PANE) ?? map.createPane(FIELD_PANE);
+        // Between the tiles (200) and everything drawn over them.
+        pane.style.zIndex = '250';
+        pane.style.pointerEvents = 'none';
+
+        // Hidden while a zoom animates, as it is not scaled along with the tiles.
+        const canvas = L.DomUtil.create('canvas', 'leaflet-zoom-hide', pane);
+        canvas.style.opacity = String(FIELD_OPACITY);
+
+        const draw = () => {
+            const size = map.getSize();
+            const left = -size.x * FIELD_PADDING;
+            const top = -size.y * FIELD_PADDING;
+            canvas.width = Math.ceil((size.x * (1 + 2 * FIELD_PADDING)) / FIELD_SCALE);
+            canvas.height = Math.ceil((size.y * (1 + 2 * FIELD_PADDING)) / FIELD_SCALE);
+            canvas.style.width = `${canvas.width * FIELD_SCALE}px`;
+            canvas.style.height = `${canvas.height * FIELD_SCALE}px`;
+            // The pane moves with the map as it is dragged, so the canvas is put
+            // back over the viewport each time it is repainted.
+            L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([left, top]));
+            paintField(canvas, field, (x, y) => {
+                const {lat, lng} = map.containerPointToLatLng([left + x * FIELD_SCALE, top + y * FIELD_SCALE]);
+                return [lat, lng];
+            });
+        };
+
+        draw();
+        map.on('moveend', draw);
+        return () => {
+            map.off('moveend', draw);
+            canvas.remove();
+        };
+    }, [map, field]);
+
+    return null;
+}
+
 // A point chosen by clicking the map, for a page that asks about a place rather
 // than a track.
 export interface PickedPoint {
@@ -567,6 +625,8 @@ interface MapViewProps {
     // landed, and the last point chosen stays marked.
     picked?: PickedPoint | null;
     onPick?: (lat: number, lng: number) => void;
+    // Scores to colour the map with, under the tracks and markers.
+    field?: ScoreField | null;
     // Whatever floats over the map. Rendered outside MapContainer, like the layer
     // control, so the projection remount does not tear it down mid-edit.
     children?: ReactNode;
@@ -576,7 +636,7 @@ interface MapViewProps {
  * The map itself: the base layers, the 2D and 3D views and the saved viewport,
  * shared by every page that shows one.
  */
-export function MapView({tracks, picked = null, onPick, children}: MapViewProps) {
+export function MapView({tracks, picked = null, onPick, field = null, children}: MapViewProps) {
     const [ready, setReady] = useState(false);
     const [layer, setLayer] = useState(savedLayer);
     const [terrain, setTerrain] = useState(() => savedTerrain(savedLayer()));
@@ -665,6 +725,8 @@ export function MapView({tracks, picked = null, onPick, children}: MapViewProps)
                         tracks={tracks}
                         picked={picked}
                         onPick={onPick}
+                        field={field}
+                        fieldOpacity={FIELD_OPACITY}
                         onMove={onTerrainMove}
                         onReady={onTerrainReady}
                         onTileError={onTileError}
@@ -692,6 +754,7 @@ export function MapView({tracks, picked = null, onPick, children}: MapViewProps)
                     <MapPersistence projection={layer.projection} onMove={onMove}/>
                     {tracks && <WorkoutTracks/>}
                     {onPick && <PickLayer picked={picked} onPick={onPick}/>}
+                    {field && <ScoreFieldLayer field={field}/>}
                     <TileLayer
                         key={layer.name}
                         url={tileUrl(layer, accessToken)}

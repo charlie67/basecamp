@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { AttributionControl, Map as MapLibreMap, NavigationControl, setWorkerUrl, type ErrorEvent, type GeoJSONSource } from 'maplibre-gl';
+import { AttributionControl, Map as MapLibreMap, NavigationControl, setWorkerUrl, type ErrorEvent, type GeoJSONSource, type ImageSource } from 'maplibre-gl';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
 import { appConfig } from '../config.ts';
 import { useAccessToken, getAccessToken } from '../auth/token.ts';
 import type { Workout } from '../api/workouts.ts';
+import { fieldImage, type ScoreField } from '../lib/scoreField.ts';
 import { trackColor } from '../lib/trackColor.ts';
 import { useWorkoutStore } from '../store/workoutStore.ts';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -60,6 +61,8 @@ const TRACKS_SOURCE = 'tracks';
 const ENDS_SOURCE = 'track-ends';
 const SCRUB_SOURCE = 'scrub';
 const PICK_SOURCE = 'pick';
+const FIELD_SOURCE = 'score-field';
+const FIELD_LAYER = 'score-field';
 const TRACK_CASING = 'track-casing';
 const TRACK_LINE = 'track-line';
 const TRACK_HIT = 'track-hit';
@@ -152,6 +155,9 @@ interface TerrainMapProps {
   // where it landed, and the last point chosen stays marked.
   picked?: { lat: number; lng: number } | null;
   onPick?: (lat: number, lng: number) => void;
+  // Scores to colour the ground with, draped over the terrain like the base layer.
+  field?: ScoreField | null;
+  fieldOpacity?: number;
   onMove: (lat: number, lng: number, zoom: number) => void;
   onReady: () => void;
   onTileError: () => void;
@@ -171,6 +177,8 @@ export default function TerrainMap({
   tracks,
   picked = null,
   onPick,
+  field = null,
+  fieldOpacity = 1,
   onMove,
   onReady,
   onTileError,
@@ -432,6 +440,34 @@ export default function TerrainMap({
       .getSource<GeoJSONSource>(PICK_SOURCE)
       ?.setData(picked ? { type: 'FeatureCollection', features: [point(picked.lng, picked.lat)] } : EMPTY);
   }, [map, picked]);
+
+  // Over the base layer and its shading, under the tracks and markers. The image
+  // is swapped in place when the scores change, as a new one arrives on every pan.
+  useEffect(() => {
+    if (!map) return;
+    if (!field) {
+      if (map.getLayer(FIELD_LAYER)) map.removeLayer(FIELD_LAYER);
+      if (map.getSource(FIELD_SOURCE)) map.removeSource(FIELD_SOURCE);
+      return;
+    }
+    const image = fieldImage(field);
+    const source = map.getSource<ImageSource>(FIELD_SOURCE);
+    if (source) {
+      source.updateImage(image);
+      return;
+    }
+    map.addSource(FIELD_SOURCE, { type: 'image', ...image });
+    map.addLayer(
+      {
+        id: FIELD_LAYER,
+        type: 'raster',
+        source: FIELD_SOURCE,
+        // No cross-fade: it would show the old scores through the new ones.
+        paint: { 'raster-opacity': fieldOpacity, 'raster-fade-duration': 0 },
+      },
+      TRACK_CASING,
+    );
+  }, [map, field, fieldOpacity]);
 
   // A crosshair while the map is clickable, as on the 2D map.
   const pickable = onPick !== undefined;

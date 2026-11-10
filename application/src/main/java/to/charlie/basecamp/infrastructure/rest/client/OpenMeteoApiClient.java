@@ -4,6 +4,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import to.charlie.basecamp.configuration.OpenMeteoProperties;
 
 import java.time.Duration;
@@ -55,6 +56,30 @@ public class OpenMeteoApiClient {
 										lat, lon, LOCAL_VARIABLES, days, String.join(",", models))
 						.retrieve()
 						.body(ONE_LOCATION);
+	}
+
+	/**
+	 * The same as {@link #getForecast} for one model at many points at once, in the order
+	 * given. Each point's days are its own local ones.
+	 */
+	@SuppressWarnings("unchecked")
+	public List<Map<String, Object>> getForecasts(final List<double[]> points, final String model, final int days) {
+		final Object body = restClient.get()
+						.uri(properties.getForecastUrl()
+														+ "?latitude={lats}&longitude={lons}&hourly={hourly}&daily=sunset"
+														+ "&timezone=auto&timeformat=unixtime&forecast_days={days}&models={model}",
+										coordinates(points, point -> point[0]), coordinates(points, point -> point[1]),
+										LOCAL_VARIABLES, days, model)
+						.retrieve()
+						.body(Object.class);
+		// Asked for a single location, Open-Meteo answers with an object rather than a list.
+		if (body instanceof List<?> list) {
+			return (List<Map<String, Object>>) list;
+		}
+		if (body instanceof Map<?, ?> map) {
+			return List.of((Map<String, Object>) map);
+		}
+		throw new RestClientException("Unexpected forecast response from Open-Meteo");
 	}
 
 	/**
