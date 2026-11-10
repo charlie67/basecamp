@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {lazy, Suspense, useCallback, useEffect, useRef, useState} from 'react';
 import proj4 from 'proj4';
 import 'proj4leaflet';
 import L from 'leaflet';
@@ -9,7 +9,14 @@ import type {Workout} from '../api/workouts.ts';
 import {useWorkoutStore} from '../store/workoutStore.ts';
 import WorkoutDetailPanel from '../components/WorkoutDetailPanel.tsx';
 import WorkoutFilterBar from '../components/WorkoutFilterBar.tsx';
+import type {DrapedLayer} from '../components/TerrainMap.tsx';
+import {trackColor} from '../lib/trackColor.ts';
 import 'leaflet/dist/leaflet.css';
+
+// MapLibre is most of a megabyte, and only the 3D view needs it, so it is fetched
+// the first time that view is opened. The page's own "Loading map..." cover stands
+// in while it arrives.
+const TerrainMap = lazy(() => import('../components/TerrainMap.tsx'));
 
 proj4.defs('EPSG:27700', '+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 +ellps=airy +towgs84=446.448,-125.157,542.06,0.15,0.247,0.842,-20.489 +units=m +no_defs');
 
@@ -47,6 +54,9 @@ interface BaseLayer {
     // needs zoomOffset -1 to stay aligned with the standard zoom numbering.
     tileSize?: number;
     zoomOffset?: number;
+    // What the 3D view drapes over the terrain in this layer's place, which has to
+    // be Web Mercator. Omitted where there is none, which keeps the layer 2D-only.
+    terrain?: DrapedLayer;
 }
 
 const BNG_MAX_ZOOM = resolutions.length - 1;
@@ -55,7 +65,14 @@ const LEISURE_MAX_NATIVE_ZOOM = 9;
 
 const OS_TILE_URL = `${appConfig.apiBase}/tiles/OS_MAPS/{layer}/{z}/{x}/{y}.png`;
 
-function osLayer(name: string, id: string, maxNativeZoom?: number): BaseLayer {
+// OS publishes Outdoor, Road and Light in Web Mercator as well, from zoom 7 to 20
+// and over Great Britain alone. That is what lets them into the 3D view; Leisure
+// is British National Grid only, so it stays out.
+const OS_WEB_MIN_ZOOM = 7;
+const OS_WEB_MAX_ZOOM = 20;
+const OS_WEB_BOUNDS: [number, number, number, number] = [-10.8, 49.5, 1.8, 61.5];
+
+function osLayer(name: string, id: string, webId: string | null, maxNativeZoom?: number): BaseLayer {
     return {
         name,
         url: OS_TILE_URL.replace('{layer}', id),
@@ -63,6 +80,27 @@ function osLayer(name: string, id: string, maxNativeZoom?: number): BaseLayer {
         maxZoom: BNG_MAX_ZOOM,
         maxNativeZoom,
         authenticated: true,
+        terrain: webId === null ? undefined : {
+            url: OS_TILE_URL.replace('{layer}', webId),
+            tileSize: 256,
+            minzoom: OS_WEB_MIN_ZOOM,
+            maxzoom: OS_WEB_MAX_ZOOM,
+            bounds: OS_WEB_BOUNDS,
+        },
+    };
+}
+
+// Web Mercator layers drape over the terrain as they are. MapLibre takes a 512px
+// tile at the zoom it is addressed by, so the offset Leaflet needs to request it
+// becomes part of the source's zoom range instead.
+function withTerrain(layer: BaseLayer): BaseLayer {
+    return {
+        ...layer,
+        terrain: {
+            url: layer.url,
+            tileSize: layer.tileSize ?? 256,
+            maxzoom: (layer.maxNativeZoom ?? layer.maxZoom) + (layer.zoomOffset ?? 0),
+        },
     };
 }
 
@@ -87,7 +125,7 @@ const MAPBOX_TILE_URL = `${appConfig.apiBase}/tiles/MAP_BOX/{layer}/{z}/{x}/{y}.
 // `styleId` is the Mapbox style the backend appends to its own api-url, so these
 // are Mapbox's names for them rather than anything we define.
 function mapboxLayer(name: string, styleId: string): BaseLayer {
-    return {
+    return withTerrain({
         name,
         url: MAPBOX_TILE_URL.replace('{layer}', styleId),
         projection: 'web',
@@ -95,31 +133,32 @@ function mapboxLayer(name: string, styleId: string): BaseLayer {
         authenticated: true,
         tileSize: MAPBOX_TILE_SIZE,
         zoomOffset: MAPBOX_ZOOM_OFFSET,
-    };
+    });
 }
 
 const BASE_LAYERS: BaseLayer[] = [
-    osLayer('Outdoor', 'Outdoor_27700'),
+    osLayer('Outdoor', 'Outdoor_27700', 'Outdoor_3857'),
     // Leisure stops at zoom level 9
-    osLayer('Leisure', 'Leisure_27700', LEISURE_MAX_NATIVE_ZOOM),
-    osLayer('Road', 'Road_27700'),
-    osLayer('Light', 'Light_27700'),
+    osLayer('Leisure', 'Leisure_27700', null, LEISURE_MAX_NATIVE_ZOOM),
+    osLayer('Road', 'Road_27700', 'Road_3857'),
+    osLayer('Light', 'Light_27700', 'Light_3857'),
     mapboxLayer('Satellite', 'satellite-v9'),
     mapboxLayer('Hybrid', 'satellite-streets-v12'),
     mapboxLayer('Mapbox Outdoors', 'outdoors-v12'),
-    {
+    withTerrain({
         name: 'World',
         url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         projection: 'web',
         maxZoom: WEB_MAX_ZOOM,
         authenticated: false,
-    },
+    }),
 ];
 
 const GB_CENTER: [number, number] = [54.5, -2.5];
 const DEFAULT_ZOOM = 2;
 const LAYER_STORAGE_KEY = 'map-base-layer';
 const VIEWPORT_STORAGE_KEY = 'map-viewport';
+const TERRAIN_STORAGE_KEY = 'map-terrain';
 
 // Ground resolution (m/px) of EPSG:3857 zoom 0 at the equator.
 const WEB_EQUATOR_RESOLUTION = 156543.03392804097;
@@ -169,6 +208,17 @@ function savedLayer(): BaseLayer {
     return BASE_LAYERS.find((l) => l.name === saved) ?? BASE_LAYERS[0];
 }
 
+// Only honoured while the layer has a 3D form, so a saved Leisure layer opens flat.
+function savedTerrain(layer: BaseLayer): boolean {
+    return localStorage.getItem(TERRAIN_STORAGE_KEY) === 'true' && layer.terrain !== undefined;
+}
+
+// The projection the map is actually drawn in: the 3D view is always Web
+// Mercator, whatever the layer's own 2D projection.
+function shownProjection(layer: BaseLayer, terrain: boolean): Projection {
+    return terrain ? 'web' : layer.projection;
+}
+
 function savedViewport(): Viewport | null {
     try {
         const raw = localStorage.getItem(VIEWPORT_STORAGE_KEY);
@@ -183,20 +233,20 @@ function savedViewport(): Viewport | null {
     return null;
 }
 
-function initialViewport(layer: BaseLayer): Viewport {
+function initialViewport(projection: Projection): Viewport {
     const saved = savedViewport();
     if (!saved) {
         return {
             lat: GB_CENTER[0],
             lng: GB_CENTER[1],
-            zoom: convertZoom(DEFAULT_ZOOM, 'bng', layer.projection, GB_CENTER[0]),
-            projection: layer.projection,
+            zoom: convertZoom(DEFAULT_ZOOM, 'bng', projection, GB_CENTER[0]),
+            projection,
         };
     }
     return {
         ...saved,
-        zoom: convertZoom(saved.zoom, saved.projection, layer.projection, saved.lat),
-        projection: layer.projection,
+        zoom: convertZoom(saved.zoom, saved.projection, projection, saved.lat),
+        projection,
     };
 }
 
@@ -222,9 +272,7 @@ function MapPersistence({projection, onMove}: {projection: Projection; onMove: (
         let timer: number | undefined;
         const onMoveEnd = () => {
             const {lat, lng} = map.getCenter();
-            const viewport: Viewport = {lat, lng, zoom: map.getZoom(), projection};
-            localStorage.setItem(VIEWPORT_STORAGE_KEY, JSON.stringify(viewport));
-            onMove(viewport);
+            onMove({lat, lng, zoom: map.getZoom(), projection});
 
             window.clearTimeout(timer);
             timer = window.setTimeout(publishBounds, BOUNDS_DEBOUNCE_MS);
@@ -243,38 +291,57 @@ function MapPersistence({projection, onMove}: {projection: Projection; onMove: (
     return null;
 }
 
-function LayerControl({active, onSelect}: {active: BaseLayer; onSelect: (layer: BaseLayer) => void}) {
+const NO_TERRAIN_HINT = 'Only available in British National Grid, so not in 3D';
+
+// Layers without a 3D form are disabled while the 3D view is on, and the 3D
+// toggle while one of them is selected, rather than switching anything silently.
+function LayerControl({active, terrain, onSelect, onToggleTerrain}: {
+    active: BaseLayer;
+    terrain: boolean;
+    onSelect: (layer: BaseLayer) => void;
+    onToggleTerrain: () => void;
+}) {
     return (
         <div className="absolute right-3 top-3 z-[1000] rounded-lg border border-slate-700 bg-slate-900/90 p-1 shadow-lg backdrop-blur">
-            {BASE_LAYERS.map((layer) => (
-                <button
-                    key={layer.name}
-                    type="button"
-                    onClick={() => onSelect(layer)}
-                    className={`block w-full rounded px-3 py-1.5 text-left text-sm ${
-                        layer.name === active.name
-                            ? 'bg-slate-700 text-slate-100'
-                            : 'text-slate-300 hover:bg-slate-800 hover:text-slate-100'
-                    }`}
-                >
-                    {layer.name}
-                </button>
-            ))}
+            {BASE_LAYERS.map((layer) => {
+                const unavailable = terrain && !layer.terrain;
+                return (
+                    <button
+                        key={layer.name}
+                        type="button"
+                        onClick={() => onSelect(layer)}
+                        disabled={unavailable}
+                        title={unavailable ? NO_TERRAIN_HINT : undefined}
+                        className={`block w-full rounded px-3 py-1.5 text-left text-sm ${
+                            layer.name === active.name
+                                ? 'bg-slate-700 text-slate-100'
+                                : unavailable
+                                    ? 'cursor-not-allowed text-slate-600'
+                                    : 'text-slate-300 hover:bg-slate-800 hover:text-slate-100'
+                        }`}
+                    >
+                        {layer.name}
+                    </button>
+                );
+            })}
+            <div className="my-1 border-t border-slate-700"/>
+            <button
+                type="button"
+                onClick={onToggleTerrain}
+                disabled={!active.terrain}
+                title={active.terrain ? undefined : `${active.name}: ${NO_TERRAIN_HINT.toLowerCase()}`}
+                className={`block w-full rounded px-3 py-1.5 text-left text-sm ${
+                    terrain
+                        ? 'bg-sky-700 text-slate-100'
+                        : active.terrain
+                            ? 'text-slate-300 hover:bg-slate-800 hover:text-slate-100'
+                            : 'cursor-not-allowed text-slate-600'
+                }`}
+            >
+                3D terrain
+            </button>
         </div>
     );
-}
-
-const TRACK_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#a855f7', '#06b6d4', '#ec4899', '#14b8a6'];
-
-// Keyed off the workout's identity rather than its position in the list: filtering
-// changes which tracks are loaded, and picking by index would recolour every
-// surviving track each time the viewport or date moved.
-function trackColor(id: string): string {
-    let hash = 0;
-    for (let i = 0; i < id.length; i++) {
-        hash = (hash * 31 + id.charCodeAt(i)) | 0;
-    }
-    return TRACK_COLORS[Math.abs(hash) % TRACK_COLORS.length];
 }
 
 // Leaflet's SVG paths have no click tolerance, so a 3px line is fiddly to hit.
@@ -410,20 +477,8 @@ function WorkoutTracks() {
     // in this store and changes as fast as the pointer moves, and subscribing to the
     // whole state would redraw every polyline along with it.
     const workouts = useWorkoutStore((state) => state.workouts);
-    const needsLoad = useWorkoutStore((state) => state.needsLoad);
-    const loading = useWorkoutStore((state) => state.loading);
-    const load = useWorkoutStore((state) => state.load);
-    const generation = useWorkoutStore((state) => state.generation);
     const selectedWorkoutId = useWorkoutStore((state) => state.selectedWorkoutId);
     const selectWorkout = useWorkoutStore((state) => state.selectWorkout);
-
-    // The search answers with every match at once — the viewport bounds keep that
-    // small. `generation` re-runs this whenever a filter changes.
-    useEffect(() => {
-        if (!loading && needsLoad) {
-            load();
-        }
-    }, [loading, needsLoad, load, generation]);
 
     const drawable = workouts
         .map((workout) => ({workout, color: trackColor(workout.id)}))
@@ -470,7 +525,11 @@ function WorkoutTracks() {
 export default function MapPage() {
     const [ready, setReady] = useState(false);
     const [layer, setLayer] = useState(savedLayer);
-    const [viewport, setViewport] = useState(() => initialViewport(savedLayer()));
+    const [terrain, setTerrain] = useState(() => savedTerrain(savedLayer()));
+    const [viewport, setViewport] = useState(() => {
+        const initial = savedLayer();
+        return initialViewport(shownProjection(initial, savedTerrain(initial)));
+    });
     // Field by field, for the same reason as WorkoutTracks: this component renders
     // the whole map, and must not be woken by the scrub index changing.
     const workouts = useWorkoutStore((state) => state.workouts);
@@ -479,6 +538,8 @@ export default function MapPage() {
     const setScope = useWorkoutStore((state) => state.setScope);
     const loading = useWorkoutStore((state) => state.loading);
     const needsLoad = useWorkoutStore((state) => state.needsLoad);
+    const load = useWorkoutStore((state) => state.load);
+    const generation = useWorkoutStore((state) => state.generation);
     const accessToken = useAccessToken();
     // A filter change marks the results stale a render before the request starts, so
     // `loading` alone would blink the indicator off in between.
@@ -490,13 +551,29 @@ export default function MapPage() {
         setScope('map');
     }, [setScope]);
 
+    // The search answers with every match at once — the viewport bounds keep that
+    // small. `generation` re-runs this whenever a filter changes. Up here rather
+    // than in either map, as both the 2D and 3D views draw what it loads.
+    useEffect(() => {
+        if (!loading && needsLoad) {
+            load();
+        }
+    }, [loading, needsLoad, load, generation]);
+
     // Tracks the live view so a projection switch can carry it across, without
     // re-rendering the map on every pan.
     const viewportRef = useRef(viewport);
 
-    const onMove = (next: Viewport) => {
+    const onMove = useCallback((next: Viewport) => {
+        localStorage.setItem(VIEWPORT_STORAGE_KEY, JSON.stringify(next));
         viewportRef.current = next;
-    };
+    }, []);
+
+    const onTerrainMove = useCallback((lat: number, lng: number, zoom: number) => {
+        onMove({lat, lng, zoom, projection: 'web'});
+    }, [onMove]);
+
+    const onTerrainReady = useCallback(() => setReady(true), []);
 
     // Tiles are the one place an expired token can't be caught from a response: they
     // load as images, so all we get is a bare error event. `renewIfExpired` decides
@@ -512,21 +589,34 @@ export default function MapPage() {
         renewIfExpired();
     }, [accessToken]);
 
+    // Carries the live view into a newly mounted map, converting its zoom if that
+    // map is drawn in the other projection.
+    const remountIn = (projection: Projection) => {
+        const {lat, lng, zoom, projection: from} = viewportRef.current;
+        const converted: Viewport = {lat, lng, zoom: convertZoom(zoom, from, projection, lat), projection};
+        viewportRef.current = converted;
+        setViewport(converted);
+        setReady(false);
+    };
+
     const selectLayer = (next: BaseLayer) => {
+        if (terrain && !next.terrain) return;
         localStorage.setItem(LAYER_STORAGE_KEY, next.name);
-        if (next.projection !== layer.projection) {
-            const {lat, lng, zoom} = viewportRef.current;
-            const converted: Viewport = {
-                lat,
-                lng,
-                zoom: convertZoom(zoom, layer.projection, next.projection, lat),
-                projection: next.projection,
-            };
-            viewportRef.current = converted;
-            setViewport(converted);
-            setReady(false);
+        // In 3D every layer is Web Mercator, so the 3D map swaps it in place.
+        if (shownProjection(next, terrain) !== shownProjection(layer, terrain)) {
+            remountIn(shownProjection(next, terrain));
         }
         setLayer(next);
+    };
+
+    // Always a remount, even between two Web Mercator maps: 2D is Leaflet and 3D
+    // is MapLibre.
+    const toggleTerrain = () => {
+        const next = !terrain;
+        if (next && !layer.terrain) return;
+        localStorage.setItem(TERRAIN_STORAGE_KEY, String(next));
+        remountIn(shownProjection(layer, next));
+        setTerrain(next);
     };
 
     return (
@@ -540,40 +630,55 @@ export default function MapPage() {
                 remount does not tear the filter down mid-edit. */}
             <WorkoutFilterBar floating/>
             {fetching && <LoadingIndicator/>}
-            <LayerControl active={layer} onSelect={selectLayer}/>
+            <LayerControl active={layer} terrain={terrain} onSelect={selectLayer} onToggleTerrain={toggleTerrain}/>
             {selectedWorkout && (
                 <WorkoutDetailPanel workout={selectedWorkout} onClose={() => selectWorkout(null)}/>
             )}
-            <MapContainer
-                // Remounts the map when the projection changes; Leaflet cannot
-                // swap a live map's CRS.
-                key={layer.projection}
-                center={[viewport.lat, viewport.lng]}
-                zoom={viewport.zoom}
-                minZoom={0}
-                maxZoom={layer.maxZoom}
-                crs={layer.projection === 'bng' ? bngCrs : L.CRS.EPSG3857}
-                className="h-full w-full"
-                // Leaflet's own zoom control sits top-left, where it is drawn over
-                // the filter bar floating in the same corner. The map's controls
-                // always paint above the overlays, so it is moved rather than
-                // stacked around: bottom-right is the one corner nothing else uses.
-                zoomControl={false}
-                whenReady={() => setReady(true)}
-            >
-                <ZoomControl position="bottomright"/>
-                <MapPersistence projection={layer.projection} onMove={onMove}/>
-                <WorkoutTracks/>
-                <TileLayer
-                    key={layer.name}
-                    url={tileUrl(layer, accessToken)}
+            {terrain && layer.terrain ? (
+                <Suspense>
+                    <TerrainMap
+                        base={layer.terrain}
+                        lat={viewport.lat}
+                        lng={viewport.lng}
+                        zoom={viewport.zoom}
+                        maxZoom={WEB_MAX_ZOOM}
+                        onMove={onTerrainMove}
+                        onReady={onTerrainReady}
+                        onTileError={onTileError}
+                    />
+                </Suspense>
+            ) : (
+                <MapContainer
+                    // Remounts the map when the projection changes; Leaflet cannot
+                    // swap a live map's CRS.
+                    key={layer.projection}
+                    center={[viewport.lat, viewport.lng]}
+                    zoom={viewport.zoom}
+                    minZoom={0}
                     maxZoom={layer.maxZoom}
-                    maxNativeZoom={layer.maxNativeZoom}
-                    tileSize={layer.tileSize ?? 256}
-                    zoomOffset={layer.zoomOffset ?? 0}
-                    eventHandlers={{tileerror: onTileError}}
-                />
-            </MapContainer>
+                    crs={layer.projection === 'bng' ? bngCrs : L.CRS.EPSG3857}
+                    className="h-full w-full"
+                    // Leaflet's own zoom control sits top-left, where it is drawn over
+                    // the filter bar floating in the same corner. The map's controls
+                    // always paint above the overlays, so it is moved rather than
+                    // stacked around: bottom-right is the one corner nothing else uses.
+                    zoomControl={false}
+                    whenReady={() => setReady(true)}
+                >
+                    <ZoomControl position="bottomright"/>
+                    <MapPersistence projection={layer.projection} onMove={onMove}/>
+                    <WorkoutTracks/>
+                    <TileLayer
+                        key={layer.name}
+                        url={tileUrl(layer, accessToken)}
+                        maxZoom={layer.maxZoom}
+                        maxNativeZoom={layer.maxNativeZoom}
+                        tileSize={layer.tileSize ?? 256}
+                        zoomOffset={layer.zoomOffset ?? 0}
+                        eventHandlers={{tileerror: onTileError}}
+                    />
+                </MapContainer>
+            )}
         </div>
     );
 }
