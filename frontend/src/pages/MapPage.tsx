@@ -1,4 +1,4 @@
-import {lazy, Suspense, useCallback, useEffect, useRef, useState} from 'react';
+import {lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode} from 'react';
 import proj4 from 'proj4';
 import 'proj4leaflet';
 import L from 'leaflet';
@@ -522,7 +522,61 @@ function WorkoutTracks() {
     );
 }
 
-export default function MapPage() {
+// A point chosen by clicking the map, for a page that asks about a place rather
+// than a track.
+export interface PickedPoint {
+    lat: number;
+    lng: number;
+}
+
+function PickLayer({picked, onPick}: {picked: PickedPoint | null; onPick: (lat: number, lng: number) => void}) {
+    const map = useMap();
+
+    // Wrapped, as a Web Mercator map scrolled round the world reports longitudes
+    // beyond ±180.
+    useMapEvent('click', (event) => {
+        const {lat, lng} = event.latlng.wrap();
+        onPick(lat, lng);
+    });
+
+    // Leaflet's grab cursor says the map can be dragged; this says a click on it
+    // does something. Set inline, as Leaflet's own stylesheet outranks ours.
+    useEffect(() => {
+        const container = map.getContainer();
+        container.style.cursor = 'crosshair';
+        return () => {
+            container.style.cursor = '';
+        };
+    }, [map]);
+
+    if (!picked) return null;
+    return (
+        <CircleMarker
+            center={[picked.lat, picked.lng]}
+            radius={7}
+            interactive={false}
+            pathOptions={{color: '#ffffff', weight: 3, fillColor: '#f97316', fillOpacity: 1}}
+        />
+    );
+}
+
+interface MapViewProps {
+    // Whether the workout tracks are drawn over the map.
+    tracks: boolean;
+    // Given together to make the map clickable: each click reports where it
+    // landed, and the last point chosen stays marked.
+    picked?: PickedPoint | null;
+    onPick?: (lat: number, lng: number) => void;
+    // Whatever floats over the map. Rendered outside MapContainer, like the layer
+    // control, so the projection remount does not tear it down mid-edit.
+    children?: ReactNode;
+}
+
+/**
+ * The map itself: the base layers, the 2D and 3D views and the saved viewport,
+ * shared by every page that shows one.
+ */
+export function MapView({tracks, picked = null, onPick, children}: MapViewProps) {
     const [ready, setReady] = useState(false);
     const [layer, setLayer] = useState(savedLayer);
     const [terrain, setTerrain] = useState(() => savedTerrain(savedLayer()));
@@ -530,35 +584,7 @@ export default function MapPage() {
         const initial = savedLayer();
         return initialViewport(shownProjection(initial, savedTerrain(initial)));
     });
-    // Field by field, for the same reason as WorkoutTracks: this component renders
-    // the whole map, and must not be woken by the scrub index changing.
-    const workouts = useWorkoutStore((state) => state.workouts);
-    const selectedWorkoutId = useWorkoutStore((state) => state.selectedWorkoutId);
-    const selectWorkout = useWorkoutStore((state) => state.selectWorkout);
-    const setScope = useWorkoutStore((state) => state.setScope);
-    const loading = useWorkoutStore((state) => state.loading);
-    const needsLoad = useWorkoutStore((state) => state.needsLoad);
-    const load = useWorkoutStore((state) => state.load);
-    const generation = useWorkoutStore((state) => state.generation);
     const accessToken = useAccessToken();
-    // A filter change marks the results stale a render before the request starts, so
-    // `loading` alone would blink the indicator off in between.
-    const fetching = loading || needsLoad;
-    const selectedWorkout = workouts.find((w) => w.id === selectedWorkoutId) ?? null;
-
-    // Tells the store to apply the viewport bounds while this page is the one mounted.
-    useEffect(() => {
-        setScope('map');
-    }, [setScope]);
-
-    // The search answers with every match at once — the viewport bounds keep that
-    // small. `generation` re-runs this whenever a filter changes. Up here rather
-    // than in either map, as both the 2D and 3D views draw what it loads.
-    useEffect(() => {
-        if (!loading && needsLoad) {
-            load();
-        }
-    }, [loading, needsLoad, load, generation]);
 
     // Tracks the live view so a projection switch can carry it across, without
     // re-rendering the map on every pan.
@@ -626,14 +652,8 @@ export default function MapPage() {
                     Loading map...
                 </div>
             )}
-            {/* Outside MapContainer, like the controls below, so the projection
-                remount does not tear the filter down mid-edit. */}
-            <WorkoutFilterBar floating/>
-            {fetching && <LoadingIndicator/>}
+            {children}
             <LayerControl active={layer} terrain={terrain} onSelect={selectLayer} onToggleTerrain={toggleTerrain}/>
-            {selectedWorkout && (
-                <WorkoutDetailPanel workout={selectedWorkout} onClose={() => selectWorkout(null)}/>
-            )}
             {terrain && layer.terrain ? (
                 <Suspense>
                     <TerrainMap
@@ -642,6 +662,9 @@ export default function MapPage() {
                         lng={viewport.lng}
                         zoom={viewport.zoom}
                         maxZoom={WEB_MAX_ZOOM}
+                        tracks={tracks}
+                        picked={picked}
+                        onPick={onPick}
                         onMove={onTerrainMove}
                         onReady={onTerrainReady}
                         onTileError={onTileError}
@@ -667,7 +690,8 @@ export default function MapPage() {
                 >
                     <ZoomControl position="bottomright"/>
                     <MapPersistence projection={layer.projection} onMove={onMove}/>
-                    <WorkoutTracks/>
+                    {tracks && <WorkoutTracks/>}
+                    {onPick && <PickLayer picked={picked} onPick={onPick}/>}
                     <TileLayer
                         key={layer.name}
                         url={tileUrl(layer, accessToken)}
@@ -680,5 +704,46 @@ export default function MapPage() {
                 </MapContainer>
             )}
         </div>
+    );
+}
+
+export default function MapPage() {
+    // Field by field, for the same reason as WorkoutTracks: this component renders
+    // the whole map, and must not be woken by the scrub index changing.
+    const workouts = useWorkoutStore((state) => state.workouts);
+    const selectedWorkoutId = useWorkoutStore((state) => state.selectedWorkoutId);
+    const selectWorkout = useWorkoutStore((state) => state.selectWorkout);
+    const setScope = useWorkoutStore((state) => state.setScope);
+    const loading = useWorkoutStore((state) => state.loading);
+    const needsLoad = useWorkoutStore((state) => state.needsLoad);
+    const load = useWorkoutStore((state) => state.load);
+    const generation = useWorkoutStore((state) => state.generation);
+    // A filter change marks the results stale a render before the request starts, so
+    // `loading` alone would blink the indicator off in between.
+    const fetching = loading || needsLoad;
+    const selectedWorkout = workouts.find((w) => w.id === selectedWorkoutId) ?? null;
+
+    // Tells the store to apply the viewport bounds while this page is the one mounted.
+    useEffect(() => {
+        setScope('map');
+    }, [setScope]);
+
+    // The search answers with every match at once — the viewport bounds keep that
+    // small. `generation` re-runs this whenever a filter changes. Up here rather
+    // than in either map, as both the 2D and 3D views draw what it loads.
+    useEffect(() => {
+        if (!loading && needsLoad) {
+            load();
+        }
+    }, [loading, needsLoad, load, generation]);
+
+    return (
+        <MapView tracks>
+            <WorkoutFilterBar floating/>
+            {fetching && <LoadingIndicator/>}
+            {selectedWorkout && (
+                <WorkoutDetailPanel workout={selectedWorkout} onClose={() => selectWorkout(null)}/>
+            )}
+        </MapView>
     );
 }

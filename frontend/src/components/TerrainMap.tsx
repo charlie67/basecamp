@@ -59,6 +59,7 @@ const HILLSHADE_LAYER = 'hillshade';
 const TRACKS_SOURCE = 'tracks';
 const ENDS_SOURCE = 'track-ends';
 const SCRUB_SOURCE = 'scrub';
+const PICK_SOURCE = 'pick';
 const TRACK_CASING = 'track-casing';
 const TRACK_LINE = 'track-line';
 const TRACK_HIT = 'track-hit';
@@ -145,6 +146,12 @@ interface TerrainMapProps {
   zoom: number;
   // Leaflet-numbered, like `zoom`.
   maxZoom: number;
+  // Whether the workout tracks are drawn.
+  tracks: boolean;
+  // Given together to make the map clickable, as on the 2D map: each click reports
+  // where it landed, and the last point chosen stays marked.
+  picked?: { lat: number; lng: number } | null;
+  onPick?: (lat: number, lng: number) => void;
   onMove: (lat: number, lng: number, zoom: number) => void;
   onReady: () => void;
   onTileError: () => void;
@@ -155,7 +162,19 @@ interface TerrainMapProps {
  * that can be tilted and rotated. MapLibre, where the 2D view is Leaflet, as
  * Leaflet only ever draws a flat map.
  */
-export default function TerrainMap({ base, lat, lng, zoom, maxZoom, onMove, onReady, onTileError }: TerrainMapProps) {
+export default function TerrainMap({
+  base,
+  lat,
+  lng,
+  zoom,
+  maxZoom,
+  tracks,
+  picked = null,
+  onPick,
+  onMove,
+  onReady,
+  onTileError,
+}: TerrainMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<MapLibreMap | null>(null);
   // Field by field, as in the 2D map, so scrubbing the profile wakes only the
@@ -168,9 +187,9 @@ export default function TerrainMap({ base, lat, lng, zoom, maxZoom, onMove, onRe
 
   // The map is built once, so its listeners reach the latest props through here
   // rather than closing over the ones from the first render.
-  const latest = useRef({ base, onMove, onReady, onTileError });
+  const latest = useRef({ base, onPick, onMove, onReady, onTileError });
   useEffect(() => {
-    latest.current = { base, onMove, onReady, onTileError };
+    latest.current = { base, onPick, onMove, onReady, onTileError };
   });
 
   // Set when a base tile fails, so the token renewal that may follow knows there
@@ -211,6 +230,7 @@ export default function TerrainMap({ base, lat, lng, zoom, maxZoom, onMove, onRe
           [TRACKS_SOURCE]: { type: 'geojson', data: EMPTY },
           [ENDS_SOURCE]: { type: 'geojson', data: EMPTY },
           [SCRUB_SOURCE]: { type: 'geojson', data: EMPTY },
+          [PICK_SOURCE]: { type: 'geojson', data: EMPTY },
         },
         layers: [
           { id: 'background', type: 'background', paint: { 'background-color': '#020617' } },
@@ -286,6 +306,17 @@ export default function TerrainMap({ base, lat, lng, zoom, maxZoom, onMove, onRe
               'circle-stroke-width': 3,
             },
           },
+          {
+            id: 'pick',
+            type: 'circle',
+            source: PICK_SOURCE,
+            paint: {
+              'circle-radius': 7,
+              'circle-color': '#f97316',
+              'circle-stroke-color': '#ffffff',
+              'circle-stroke-width': 3,
+            },
+          },
         ],
         terrain: { source: 'terrain', exaggeration: TERRAIN_EXAGGERATION },
         sky: {
@@ -339,8 +370,14 @@ export default function TerrainMap({ base, lat, lng, zoom, maxZoom, onMove, onRe
       latest.current.onTileError();
     });
 
-    // Clicking a track selects it; clicking anywhere else clears the selection.
+    // On a clickable map the click is the pick. Otherwise clicking a track
+    // selects it, and clicking anywhere else clears the selection.
     instance.on('click', (event) => {
+      if (latest.current.onPick) {
+        const { lat: pickedLat, lng: pickedLng } = event.lngLat.wrap();
+        latest.current.onPick(pickedLat, pickedLng);
+        return;
+      }
       const [hit] = instance.queryRenderedFeatures(event.point, { layers: [TRACK_HIT] });
       useWorkoutStore.getState().selectWorkout(hit ? String(hit.properties.id) : null);
     });
@@ -384,10 +421,28 @@ export default function TerrainMap({ base, lat, lng, zoom, maxZoom, onMove, onRe
 
   useEffect(() => {
     if (!map) return;
-    const selected = workouts.find((workout) => workout.id === selectedWorkoutId);
-    map.getSource<GeoJSONSource>(TRACKS_SOURCE)?.setData(trackFeatures(workouts, selectedWorkoutId));
+    const selected = tracks ? workouts.find((workout) => workout.id === selectedWorkoutId) : undefined;
+    map.getSource<GeoJSONSource>(TRACKS_SOURCE)?.setData(tracks ? trackFeatures(workouts, selectedWorkoutId) : EMPTY);
     map.getSource<GeoJSONSource>(ENDS_SOURCE)?.setData(endFeatures(selected));
-  }, [map, workouts, selectedWorkoutId]);
+  }, [map, tracks, workouts, selectedWorkoutId]);
+
+  useEffect(() => {
+    if (!map) return;
+    map
+      .getSource<GeoJSONSource>(PICK_SOURCE)
+      ?.setData(picked ? { type: 'FeatureCollection', features: [point(picked.lng, picked.lat)] } : EMPTY);
+  }, [map, picked]);
+
+  // A crosshair while the map is clickable, as on the 2D map.
+  const pickable = onPick !== undefined;
+  useEffect(() => {
+    if (!map || !pickable) return;
+    const canvas = map.getCanvas();
+    canvas.style.cursor = 'crosshair';
+    return () => {
+      canvas.style.cursor = '';
+    };
+  }, [map, pickable]);
 
   useEffect(() => {
     if (!map) return;

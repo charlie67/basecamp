@@ -3,6 +3,7 @@ import {BrowserRouter, Navigate, Route, Routes} from 'react-router-dom';
 import {useAuth} from 'react-oidc-context';
 import Layout from './components/Layout.tsx';
 import MapPage from './pages/MapPage.tsx';
+import SunsetPage from './pages/SunsetPage.tsx';
 import {setAccessToken, setRenewHandler, useAccessToken} from './auth/token.ts';
 import {appConfig} from './config.ts';
 
@@ -29,6 +30,7 @@ function AppRoutes() {
             <Routes>
                 <Route element={<Layout/>}>
                     <Route path="/map" element={<MapPage/>}/>
+                    <Route path="/sunset" element={<SunsetPage/>}/>
                 </Route>
                 <Route path="*" element={<Navigate to="/map" replace/>}/>
             </Routes>
