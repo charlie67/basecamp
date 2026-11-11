@@ -9,6 +9,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.server.ResponseStatusException;
 import to.charlie.basecamp.configuration.SunsetProperties;
+import to.charlie.basecamp.domain.model.SunEvent;
 import to.charlie.basecamp.domain.model.dto.sunset.SunsetDay;
 import to.charlie.basecamp.domain.model.dto.sunset.SunsetMapDay;
 import to.charlie.basecamp.domain.model.dto.sunset.SunsetMapResponse;
@@ -34,13 +35,16 @@ import static org.springframework.http.HttpStatus.BAD_GATEWAY;
 import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
 
 /**
- * Sunset scores across a whole area at once, for colouring the map with.
+ * Sunset or sunrise scores across a whole area at once, for colouring the map with.
  *
  * <p>The area is covered by a regular lattice of points, coarser the more ground it takes in,
  * and each point is scored as {@link SunsetService} scores one, with two economies that make
  * hundreds of points affordable. Only one weather model is used. And the cloud along each
  * point's path toward the sun is not fetched for that point alone: it is read off the lattice,
  * interpolated between the points nearest the path, so neighbouring points share it.
+ *
+ * <p>That also means a point's weather is the same whichever of the two is being scored, so
+ * the sunset and the sunrise are answered from the one cache.
  */
 @Service
 @RequiredArgsConstructor
@@ -79,10 +83,10 @@ public class SunsetMapService {
 	/** A point's cloud as a weighted mix of the lattice points around it. */
 	private record Blend(List<SunsetMapPointId> corners, List<Double> weights) {}
 
-	/** Everything one point's score for one evening is worked out from. */
-	private record Evening(LocalDate date, long sunset, int utcOffsetSeconds, double azimuth, List<Blend> path) {}
+	/** Everything one point's score for one day's sunset or sunrise is worked out from. */
+	private record Moment(LocalDate date, long time, int utcOffsetSeconds, double azimuth, List<Blend> path) {}
 
-	public SunsetMapResponse getMap(final double south, final double west, final double north, final double east) {
+	public SunsetMapResponse getMap(final SunEvent event, final double south, final double west, final double north, final double east) {
 		final int latStep = latStep(south, west, north, east);
 		final int lonStep = latStep * LON_STEP_FACTOR;
 		final int firstRow = firstRow(south, latStep);
@@ -104,13 +108,13 @@ public class SunsetMapService {
 		// Where each path lies depends on the date at the point, which is only known once
 		// its own weather is in. So the paths are laid out now and loaded in a second pass.
 		final int pathLatStep = Math.max(latStep, PATH_MIN_LAT_STEP);
-		final List<List<Evening>> evenings = points.stream()
-						.map(point -> evenings(point, weather.get(point).getForecast(), model, pathLatStep))
+		final List<List<Moment>> moments = points.stream()
+						.map(point -> moments(event, point, weather.get(point).getForecast(), model, pathLatStep))
 						.toList();
 		final Set<SunsetMapPointId> pathPoints = new LinkedHashSet<>();
-		evenings.forEach(point -> point.forEach(evening -> {
-			if (evening != null) {
-				evening.path().forEach(blend -> pathPoints.addAll(blend.corners()));
+		moments.forEach(point -> point.forEach(moment -> {
+			if (moment != null) {
+				moment.path().forEach(blend -> pathPoints.addAll(blend.corners()));
 			}
 		}));
 		load(pathPoints, model, weather);
@@ -123,21 +127,21 @@ public class SunsetMapService {
 		final List<SunsetMapDay> days = new ArrayList<>();
 		for (int day = 0; day < SunsetService.FORECAST_DAYS; day++) {
 			final List<Double> scores = new ArrayList<>(points.size());
-			Evening representative = evenings.get(middle).get(day);
+			Moment representative = moments.get(middle).get(day);
 			boolean any = false;
 			for (int i = 0; i < points.size(); i++) {
-				final Evening evening = evenings.get(i).get(day);
-				final Double score = evening == null ? null : score(evening, series.get(points.get(i)), series);
+				final Moment moment = moments.get(i).get(day);
+				final Double score = moment == null ? null : score(event, moment, series.get(points.get(i)), series);
 				scores.add(score);
 				if (score != null) {
 					any = true;
 					if (representative == null) {
-						representative = evening;
+						representative = moment;
 					}
 				}
 			}
 			if (any && representative != null) {
-				days.add(new SunsetMapDay(representative.date(), representative.sunset(), representative.utcOffsetSeconds(), scores));
+				days.add(new SunsetMapDay(representative.date(), representative.time(), representative.utcOffsetSeconds(), scores));
 			}
 		}
 
@@ -174,29 +178,29 @@ public class SunsetMapService {
 		return Math.min(Math.ceilDiv((int) Math.ceil(north * 100), latStep), MAX_LAT_HUNDREDTHS / latStep);
 	}
 
-	/** One entry per forecast day, null for a day with no sunset at the point. */
-	private static List<Evening> evenings(final SunsetMapPointId point, final Map<String, Object> forecast,
+	/** One entry per forecast day, null for a day the sun does not set or rise on at the point. */
+	private static List<Moment> moments(final SunEvent event, final SunsetMapPointId point, final Map<String, Object> forecast,
 	                                      final String model, final int pathLatStep) {
 		final int utcOffsetSeconds = ((Number) forecast.get("utc_offset_seconds")).intValue();
 		final List<LocalDate> dates = SunsetService.dates(forecast);
-		final List<Number> sunsets = SunsetService.sunsets(forecast, model);
+		final List<Number> times = SunsetService.times(forecast, event, model);
 
-		final List<Evening> evenings = new ArrayList<>();
+		final List<Moment> moments = new ArrayList<>();
 		for (int day = 0; day < SunsetService.FORECAST_DAYS; day++) {
-			// No sunset at all during polar day or night, which leaves nothing to score.
-			final Number sunset = sunsets != null && day < sunsets.size() && day < dates.size() ? sunsets.get(day) : null;
-			if (sunset == null || sunset.longValue() == 0) {
-				evenings.add(null);
+			// Neither happens during polar day or night, which leaves nothing to score.
+			final Number time = times != null && day < times.size() && day < dates.size() ? times.get(day) : null;
+			if (time == null || time.longValue() == 0) {
+				moments.add(null);
 				continue;
 			}
-			final double azimuth = SunsetGeometry.sunsetAzimuth(point.lat(), dates.get(day));
+			final double azimuth = SunsetGeometry.azimuth(event, point.lat(), dates.get(day));
 			final List<Blend> path = SunsetScorer.PATH_POINTS_KM.stream()
 							.map(km -> SunsetGeometry.destination(point.lat(), point.lon(), azimuth, km))
 							.map(place -> blend(place[0], place[1], pathLatStep))
 							.toList();
-			evenings.add(new Evening(dates.get(day), sunset.longValue(), utcOffsetSeconds, azimuth, path));
+			moments.add(new Moment(dates.get(day), time.longValue(), utcOffsetSeconds, azimuth, path));
 		}
-		return evenings;
+		return moments;
 	}
 
 	/** The four lattice points around a place, weighted by how close each is to it. */
@@ -224,16 +228,16 @@ public class SunsetMapService {
 	}
 
 	/** Scored without aerosols, which would take a second request for every point. */
-	private Double score(final Evening evening, final WeatherSeries local, final Map<SunsetMapPointId, WeatherSeries> series) {
+	private Double score(final SunEvent event, final Moment moment, final WeatherSeries local, final Map<SunsetMapPointId, WeatherSeries> series) {
 		if (local == null) {
 			return null;
 		}
-		final List<WeatherSeries> path = evening.path().stream()
+		final List<WeatherSeries> path = moment.path().stream()
 						.map(blend -> WeatherSeries.blend(
 										blend.corners().stream().map(series::get).toList(),
 										blend.weights().stream().mapToDouble(Double::doubleValue).toArray()))
 						.toList();
-		return sunsetScorer.score(evening.date(), evening.sunset(), evening.azimuth(), local, path, null)
+		return sunsetScorer.score(event, moment.date(), moment.time(), moment.azimuth(), local, path, null)
 						.map(SunsetDay::score)
 						.map(score -> Math.round(score * 10) / 10.0)
 						.orElse(null);
@@ -254,6 +258,7 @@ public class SunsetMapService {
 							.filter(cached -> cached.getFetchedAt().isAfter(oldestFresh))
 							.filter(cached -> cached.getModel().equals(model))
 							.filter(SunsetMapService::startsToday)
+							.filter(SunsetMapService::hasBothEvents)
 							.forEach(cached -> weather.put(cached.getId(), cached));
 
 			final List<SunsetMapPointId> missing = wanted.stream().filter(point -> !weather.containsKey(point)).toList();
@@ -306,9 +311,15 @@ public class SunsetMapService {
 		}
 	}
 
+	/** False for a row cached before the sunrise was forecast, which holds the sunset times alone. */
+	private static boolean hasBothEvents(final SunsetMapWeatherEntity cached) {
+		return cached.getForecast().get("daily") instanceof Map<?, ?> daily
+						&& daily.containsKey(SunEvent.SUNSET.variable()) && daily.containsKey(SunEvent.SUNRISE.variable());
+	}
+
 	/**
 	 * Whether the forecast's first day is still today where the point is. One fetched late in
-	 * the evening is otherwise served past midnight with yesterday as its first day.
+	 * the moment is otherwise served past midnight with yesterday as its first day.
 	 */
 	private static boolean startsToday(final SunsetMapWeatherEntity cached) {
 		final Map<String, Object> forecast = cached.getForecast();

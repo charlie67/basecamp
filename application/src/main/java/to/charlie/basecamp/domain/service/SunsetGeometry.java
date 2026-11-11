@@ -1,9 +1,11 @@
 package to.charlie.basecamp.domain.service;
 
+import to.charlie.basecamp.domain.model.SunEvent;
+
 import java.time.LocalDate;
 
 /**
- * Where the sun sets, and what lies in that direction.
+ * Where the sun sets and rises, and what lies in that direction.
  */
 final class SunsetGeometry {
 
@@ -19,6 +21,12 @@ final class SunsetGeometry {
 						-AXIAL_TILT_DEGREES * Math.cos(2 * Math.PI / 365 * (date.getDayOfYear() + 10)));
 		final double cosAzimuth = Math.sin(declination) / Math.cos(Math.toRadians(lat));
 		return 360 - Math.toDegrees(Math.acos(Math.clamp(cosAzimuth, -1.0, 1.0)));
+	}
+
+	/** Compass bearing of the sun as it sets or rises. The two mirror each other about due north. */
+	static double azimuth(final SunEvent event, final double lat, final LocalDate date) {
+		final double sunset = sunsetAzimuth(lat, date);
+		return event == SunEvent.SUNRISE ? 360 - sunset : sunset;
 	}
 
 	/** The point reached by travelling {@code km} from (lat, lon) along {@code bearing}, as [lat, lon]. */

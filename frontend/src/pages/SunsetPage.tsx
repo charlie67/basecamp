@@ -1,10 +1,11 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {MapView, type PickedPoint} from './MapPage.tsx';
-import SunsetPanel, {modelName, type SunsetStatus} from '../components/SunsetPanel.tsx';
+import SunsetPanel, {eventTitle, modelName, type SunsetStatus} from '../components/SunsetPanel.tsx';
 import {
     AreaTooLargeError,
     fetchSunsetForecast,
     fetchSunsetMap,
+    type SunEvent,
     type SunsetMap,
     type SunsetMapDay,
 } from '../api/sunset.ts';
@@ -32,7 +33,7 @@ function dayName(day: SunsetMapDay, index: number): string {
 // Shifted by the place's own offset and read back as UTC, as the forecast panel
 // does, so the time is the one its clocks will show.
 function sunsetTime(day: SunsetMapDay): string {
-    return new Date((day.sunset + day.utc_offset_seconds) * 1000)
+    return new Date((day.time + day.utc_offset_seconds) * 1000)
         .toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit', timeZone: 'UTC'});
 }
 
@@ -40,7 +41,8 @@ function sunsetTime(day: SunsetMapDay): string {
  * What the colours on the map mean, which evening they are for, and the switch
  * that turns them off.
  */
-function Legend({enabled, onToggle, map, status, dayIndex, onDay}: {
+function Legend({event, enabled, onToggle, map, status, dayIndex, onDay}: {
+    event: SunEvent;
     enabled: boolean;
     onToggle: () => void;
     map: SunsetMap | null;
@@ -53,7 +55,7 @@ function Legend({enabled, onToggle, map, status, dayIndex, onDay}: {
     return (
         <div className="absolute left-3 top-3 z-[1000] w-64 max-w-[calc(100%-1.5rem)] rounded-lg border border-slate-700 bg-slate-900/90 p-3 text-sm text-slate-300 shadow-lg backdrop-blur">
             <label className="flex cursor-pointer items-center justify-between gap-2">
-                <span className="font-medium text-slate-100">Sunset quality</span>
+                <span className="font-medium text-slate-100">{eventTitle(event)} quality</span>
                 <input type="checkbox" checked={enabled} onChange={onToggle} className="h-4 w-4 accent-orange-500"/>
             </label>
 
@@ -91,12 +93,13 @@ function Legend({enabled, onToggle, map, status, dayIndex, onDay}: {
                     {status.state === 'loading' && !map && <p className="mt-2 text-xs text-slate-400">Loading scores…</p>}
                     {map && day && (
                         <p className="mt-2 text-xs text-slate-500" title={modelName(map.model).full}>
-                            Sunset about {sunsetTime(day)} · {modelName(map.model).short} forecast
+                            {eventTitle(event)} {day.time * 1000 < Date.now() ? 'was ' : ''}about {sunsetTime(day)}
+                            {' · '}{modelName(map.model).short} forecast
                             {status.state === 'loading' ? ' · updating…' : ''}
                         </p>
                     )}
                     {map && map.days.length === 0 && (
-                        <p className="mt-2 text-xs text-slate-400">No sunset here in the next few days.</p>
+                        <p className="mt-2 text-xs text-slate-400">No {event} here in the next few days.</p>
                     )}
                 </>
             )}
@@ -110,16 +113,20 @@ function Legend({enabled, onToggle, map, status, dayIndex, onDay}: {
 
 /**
  * The map without the workouts, coloured by how good the sunset is likely to be
- * across it. Clicking anywhere gives the full forecast for that point.
+ * across it. Clicking anywhere gives the full forecast for that point. The same
+ * page serves the sunrise: the route mounts it afresh for each, so nothing of one
+ * is ever shown as the other.
  */
-export default function SunsetPage() {
+export default function SunsetPage({event}: {event: SunEvent}) {
     const [picked, setPicked] = useState<PickedPoint | null>(null);
     const [status, setStatus] = useState<SunsetStatus>({state: 'loading'});
 
     const [overlay, setOverlay] = useState(() => localStorage.getItem(OVERLAY_STORAGE_KEY) !== 'false');
     const [overlayStatus, setOverlayStatus] = useState<OverlayStatus>({state: 'idle'});
     const [sunsetMap, setSunsetMap] = useState<SunsetMap | null>(null);
-    const [dayIndex, setDayIndex] = useState(0);
+    // Null until a day is picked by hand. Until then the map shows the next one
+    // still to come, as today's is no use once it has passed.
+    const [dayChoice, setDayChoice] = useState<number | null>(null);
     // Bumped to ask again a while after a request has failed.
     const [retry, setRetry] = useState(0);
     // Both maps already publish what they show here, debounced, for the workout
@@ -138,7 +145,7 @@ export default function SunsetPage() {
         if (!picked) return;
 
         const controller = new AbortController();
-        fetchSunsetForecast(picked.lat, picked.lng, controller.signal)
+        fetchSunsetForecast(event, picked.lat, picked.lng, controller.signal)
             .then((forecast) => setStatus({state: 'done', forecast}))
             .catch((error: unknown) => {
                 // Aborted by a newer click, whose own request will report instead.
@@ -146,7 +153,7 @@ export default function SunsetPage() {
                 setStatus({state: 'error', message: error instanceof Error ? error.message : 'Forecast failed'});
             });
         return () => controller.abort();
-    }, [picked]);
+    }, [event, picked]);
 
     // Asked for again on every move. The scores already on the map stay until the
     // new ones land, and the backend answers from its cache where the views overlap.
@@ -158,6 +165,7 @@ export default function SunsetPage() {
         let retryTimer: number | undefined;
         setOverlayStatus({state: 'loading'});
         fetchSunsetMap(
+            event,
             {south: bounds.min_lat, west: bounds.min_lon, north: bounds.max_lat, east: bounds.max_lon},
             controller.signal,
         )
@@ -183,15 +191,16 @@ export default function SunsetPage() {
             window.clearTimeout(retryTimer);
             controller.abort();
         };
-    }, [overlay, bounds, retry]);
+    }, [event, overlay, bounds, retry]);
 
     const toggleOverlay = () => {
         localStorage.setItem(OVERLAY_STORAGE_KEY, String(!overlay));
         setOverlay(!overlay);
     };
 
+    const upcoming = sunsetMap ? sunsetMap.days.findIndex((day) => day.time * 1000 > Date.now()) : -1;
     // A day can drop off the end between one answer and the next.
-    const shownDay = sunsetMap ? Math.min(dayIndex, sunsetMap.days.length - 1) : 0;
+    const shownDay = sunsetMap ? Math.min(dayChoice ?? Math.max(upcoming, 0), sunsetMap.days.length - 1) : 0;
     const scores = sunsetMap?.days[shownDay]?.scores;
     // Memoised, as the maps repaint whenever they are handed a new field.
     const field = useMemo<ScoreField | null>(() => {
@@ -210,15 +219,17 @@ export default function SunsetPage() {
     return (
         <MapView tracks={false} picked={picked} onPick={onPick} field={field}>
             <Legend
+                event={event}
                 enabled={overlay}
                 onToggle={toggleOverlay}
                 map={sunsetMap}
                 status={overlayStatus}
                 dayIndex={shownDay}
-                onDay={setDayIndex}
+                onDay={setDayChoice}
             />
             {picked && (
                 <SunsetPanel
+                    event={event}
                     // Keyed by the point, so each new one opens on its first score.
                     key={`${picked.lat},${picked.lng}`}
                     lat={picked.lat}

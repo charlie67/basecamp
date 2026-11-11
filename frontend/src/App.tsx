@@ -30,7 +30,9 @@ function AppRoutes() {
             <Routes>
                 <Route element={<Layout/>}>
                     <Route path="/map" element={<MapPage/>}/>
-                    <Route path="/sunset" element={<SunsetPage/>}/>
+                    {/* Keyed, so going from one tab to the other starts the page afresh. */}
+                    <Route path="/sunrise" element={<SunsetPage key="sunrise" event="sunrise"/>}/>
+                    <Route path="/sunset" element={<SunsetPage key="sunset" event="sunset"/>}/>
                 </Route>
                 <Route path="*" element={<Navigate to="/map" replace/>}/>
             </Routes>

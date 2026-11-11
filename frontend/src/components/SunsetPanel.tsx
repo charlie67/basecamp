@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import type { SunsetDay, SunsetFactor, SunsetForecast, SunsetLabel } from '../api/sunset.ts';
+import type { SunEvent, SunsetDay, SunsetFactor, SunsetForecast, SunsetLabel } from '../api/sunset.ts';
 
 export type SunsetStatus =
   | { state: 'loading' }
@@ -47,7 +47,7 @@ function signed(value: number | null, digits: number): string {
 // Shifted by the point's own offset and then read back as UTC, so the times are
 // the ones its clocks will show rather than the browser's.
 function localDate(day: SunsetDay, forecast: SunsetForecast): Date {
-  return new Date((day.sunset + forecast.utc_offset_seconds) * 1000);
+  return new Date((day.time + forecast.utc_offset_seconds) * 1000);
 }
 
 function formatDay(date: Date): string {
@@ -68,7 +68,13 @@ interface FactorGroup {
   readings: { name: string; value: (day: SunsetDay) => string }[];
 }
 
-function factorGroups(forecast: SunsetForecast): FactorGroup[] {
+// "Sunset" or "Sunrise", for where the word starts a line.
+export function eventTitle(event: SunEvent): string {
+  return event === 'sunrise' ? 'Sunrise' : 'Sunset';
+}
+
+function factorGroups(forecast: SunsetForecast, event: SunEvent): FactorGroup[] {
+  const sun = event === 'sunrise' ? 'rising' : 'setting';
   return [
     {
       factor: 'canvas',
@@ -88,7 +94,7 @@ function factorGroups(forecast: SunsetForecast): FactorGroup[] {
     {
       factor: 'horizon',
       name: 'Horizon',
-      hint: 'Cloud between here and the setting sun, which stops the light arriving. Low when the path is blocked.',
+      hint: `Cloud between here and the ${sun} sun, which stops the light arriving. Low when the path is blocked.`,
       readings: forecast.path_points_km.map((km, i) => ({
         name: `Cloud at ${km} km %`,
         value: (day: SunsetDay) => number(day.path_blocks[i] ?? null, 0),
@@ -109,7 +115,7 @@ function factorGroups(forecast: SunsetForecast): FactorGroup[] {
     {
       factor: 'rain',
       name: 'Rain',
-      hint: 'Low when it is raining at sunset.',
+      hint: `Low when it is raining at ${event}.`,
       readings: [
         { name: 'Rain mm/h', value: (day) => number(day.rain, 1) },
         { name: 'Pressure hPa/6h', value: (day) => signed(day.pressure_change, 1) },
@@ -133,16 +139,20 @@ function spread(values: (number | null)[]): number {
 }
 
 /**
- * Why the models score one sunset differently: every factor of the score for
+ * Why the models score one sunset or sunrise differently: every factor of the score for
  * each model, in the same columns as the scores above, with the weather behind
  * each factor underneath it.
  */
-function Comparison({ forecast, days }: { forecast: SunsetForecast; days: (SunsetDay | undefined)[] }) {
-  const groups = factorGroups(forecast);
+function Comparison({ forecast, event, days }: {
+  forecast: SunsetForecast;
+  event: SunEvent;
+  days: (SunsetDay | undefined)[];
+}) {
+  const groups = factorGroups(forecast, event);
   const columns = days.length + 1;
   const first = days.find((day) => day)!;
   const date = localDate(first, forecast);
-  const passed = first.sunset * 1000 < Date.now();
+  const passed = first.time * 1000 < Date.now();
 
   const disagreements = groups
     .map((group) => ({ name: group.name, spread: spread(days.map((day) => day?.factors[group.factor] ?? null)) }))
@@ -154,7 +164,7 @@ function Comparison({ forecast, days }: { forecast: SunsetForecast; days: (Sunse
     <>
       <tr>
         <td colSpan={columns} className="pt-1 text-left text-slate-400">
-          Sunset {formatTime(date)}{passed ? ' (passed)' : ''} toward {COMPASS[Math.round(first.azimuth / 45) % 8]}{' '}
+          {eventTitle(event)} {formatTime(date)}{passed ? ' (passed)' : ''} toward {COMPASS[Math.round(first.azimuth / 45) % 8]}{' '}
           {Math.round(first.azimuth)}°.{' '}
           {disagreements.length > 0
             ? `The models differ most on ${disagreements.map((group) => group.name.toLowerCase()).join(', ')}.`
@@ -205,7 +215,7 @@ function Comparison({ forecast, days }: { forecast: SunsetForecast; days: (Sunse
  * per model. Clicking a row opens the comparison of what each model's score for
  * that sunset is made from.
  */
-function ScoreTable({ forecast }: { forecast: SunsetForecast }) {
+function ScoreTable({ forecast, event }: { forecast: SunsetForecast; event: SunEvent }) {
   // A model can be missing a day the others have, so the rows are the days any
   // of them has, and each cell is looked up by date rather than by position.
   const dates = [...new Set(forecast.models.flatMap((model) => model.days.map((day) => day.date)))].sort();
@@ -216,7 +226,7 @@ function ScoreTable({ forecast }: { forecast: SunsetForecast }) {
     <table className="mt-3 w-full border-separate border-spacing-x-1 border-spacing-y-0.5 text-center text-xs">
       <thead>
         <tr className="text-slate-500">
-          <th className="text-left font-normal">Sunset</th>
+          <th className="text-left font-normal">{eventTitle(event)}</th>
           {forecast.models.map(({ model }) => (
             <th key={model} className="font-normal" title={modelName(model).full}>
               {modelName(model).short}
@@ -258,7 +268,7 @@ function ScoreTable({ forecast }: { forecast: SunsetForecast }) {
                   </td>
                 ))}
               </tr>
-              {open && <Comparison forecast={forecast} days={days}/>}
+              {open && <Comparison forecast={forecast} event={event} days={days}/>}
             </Fragment>
           );
         })}
@@ -267,14 +277,14 @@ function ScoreTable({ forecast }: { forecast: SunsetForecast }) {
   );
 }
 
-function Forecast({ forecast }: { forecast: SunsetForecast }) {
+function Forecast({ forecast, event }: { forecast: SunsetForecast; event: SunEvent }) {
   if (forecast.models.every((model) => model.days.length === 0)) {
-    return <p className="mt-3 text-sm text-slate-400">No sunset here in the next few days.</p>;
+    return <p className="mt-3 text-sm text-slate-400">No {event} here in the next few days.</p>;
   }
 
   return (
     <>
-      <ScoreTable forecast={forecast}/>
+      <ScoreTable forecast={forecast} event={event}/>
       <p className="mt-2 text-xs text-slate-500">
         Weather fetched {new Date(forecast.fetched_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
       </p>
@@ -283,11 +293,12 @@ function Forecast({ forecast }: { forecast: SunsetForecast }) {
 }
 
 /**
- * The sunset forecast for the point picked on the map. A sibling of the map
+ * The sunset or sunrise forecast for the point picked on the map. A sibling of the map
  * rather than a layer in it, like the workout panel, so the map never intercepts
  * its clicks and a projection switch does not tear it down.
  */
-export default function SunsetPanel({ lat, lng, status, onClose }: {
+export default function SunsetPanel({ event, lat, lng, status, onClose }: {
+  event: SunEvent;
   lat: number;
   lng: number;
   status: SunsetStatus;
@@ -298,7 +309,7 @@ export default function SunsetPanel({ lat, lng, status, onClose }: {
     <div className="absolute bottom-3 left-3 z-[1000] max-h-[calc(100%-1.5rem)] w-[26rem] max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-lg border border-slate-700 bg-slate-900/90 p-4 shadow-lg backdrop-blur">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h2 className="font-medium text-slate-100">Sunset</h2>
+          <h2 className="font-medium text-slate-100">{eventTitle(event)}</h2>
           <p className="text-xs text-slate-400">
             {lat.toFixed(3)}, {lng.toFixed(3)}
           </p>
@@ -315,7 +326,7 @@ export default function SunsetPanel({ lat, lng, status, onClose }: {
 
       {status.state === 'loading' && <p className="mt-3 text-sm text-slate-400">Loading forecast…</p>}
       {status.state === 'error' && <p className="mt-3 text-sm text-red-400">{status.message}</p>}
-      {status.state === 'done' && <Forecast forecast={status.forecast}/>}
+      {status.state === 'done' && <Forecast forecast={status.forecast} event={event}/>}
     </div>
   );
 }

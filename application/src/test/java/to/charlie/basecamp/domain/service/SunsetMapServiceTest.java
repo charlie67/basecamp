@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 import to.charlie.basecamp.configuration.SunsetProperties;
+import to.charlie.basecamp.domain.model.SunEvent;
 import to.charlie.basecamp.domain.model.dto.sunset.SunsetMapResponse;
 import to.charlie.basecamp.domain.model.entity.SunsetMapPointId;
 import to.charlie.basecamp.domain.model.entity.SunsetMapWeatherEntity;
@@ -72,7 +73,7 @@ class SunsetMapServiceTest {
 
 	@Test
 	void scoresEveryPointOfALatticeThatReachesTheEdgesOfTheArea() {
-		final SunsetMapResponse map = service.getMap(51.03, -2.95, 51.38, -2.3);
+		final SunsetMapResponse map = service.getMap(SunEvent.SUNSET, 51.03, -2.95, 51.38, -2.3);
 
 		// Tenth-of-a-degree rows, and columns twice as far apart.
 		assertThat(map.south()).isEqualTo(51.0);
@@ -85,7 +86,7 @@ class SunsetMapServiceTest {
 
 		assertThat(map.days()).hasSize(3);
 		assertThat(map.days().getFirst().date()).isEqualTo(LocalDate.now(ZoneOffset.UTC));
-		assertThat(map.days().getFirst().sunset()).isEqualTo(MIDNIGHT + 16 * HOUR + HOUR / 2);
+		assertThat(map.days().getFirst().time()).isEqualTo(MIDNIGHT + 16 * HOUR + HOUR / 2);
 		assertThat(map.days()).allSatisfy(day ->
 						assertThat(day.scores()).hasSize(25).allSatisfy(score -> assertThat(score).isGreaterThan(9.5)));
 	}
@@ -96,18 +97,51 @@ class SunsetMapServiceTest {
 		// every path the light arrives by.
 		lowCloudAtLon = lon -> lon <= -5 ? 100 : 0;
 
-		final SunsetMapResponse map = service.getMap(51.03, -2.95, 51.38, -2.3);
+		final SunsetMapResponse map = service.getMap(SunEvent.SUNSET, 51.03, -2.95, 51.38, -2.3);
 
 		assertThat(map.days().getFirst().scores()).allSatisfy(score -> assertThat(score).isBetween(1.0, 9.0));
 		assertThat(asked).anySatisfy(point -> assertThat(point[1]).isLessThanOrEqualTo(-5));
 	}
 
 	@Test
-	void aSecondLookAtTheSameAreaIsAnsweredFromTheCache() {
-		service.getMap(51.03, -2.95, 51.38, -2.3);
+	void theSunriseIsLitFromTheEastSoCloudToTheWestDoesNotTouchIt() {
+		lowCloudAtLon = lon -> lon <= -5 ? 100 : 0;
+
+		final SunsetMapResponse sunrise = service.getMap(SunEvent.SUNRISE, 51.03, -2.95, 51.38, -2.3);
+
+		assertThat(sunrise.days().getFirst().time()).isEqualTo(MIDNIGHT + 7 * HOUR + HOUR / 2);
+		assertThat(sunrise.days().getFirst().scores()).allSatisfy(score -> assertThat(score).isGreaterThan(9.5));
+		assertThat(asked).allSatisfy(point -> assertThat(point[1]).isGreaterThan(-5));
+	}
+
+	@Test
+	void cloudToTheEastLowersTheSunriseAndLeavesTheSunsetAlone() {
+		lowCloudAtLon = lon -> lon >= 0 ? 100 : 0;
+
+		final SunsetMapResponse sunrise = service.getMap(SunEvent.SUNRISE, 51.03, -2.95, 51.38, -2.3);
+		final SunsetMapResponse sunset = service.getMap(SunEvent.SUNSET, 51.03, -2.95, 51.38, -2.3);
+
+		assertThat(sunrise.days().getFirst().scores()).allSatisfy(score -> assertThat(score).isBetween(1.0, 9.0));
+		assertThat(sunset.days().getFirst().scores()).allSatisfy(score -> assertThat(score).isGreaterThan(9.5));
+	}
+
+	@Test
+	void theSunriseOverAnAreaReusesTheWeatherFetchedForItsSunset() {
+		service.getMap(SunEvent.SUNSET, 51.03, -2.95, 51.38, -2.3);
 		final int fetched = asked.size();
 
-		final SunsetMapResponse again = service.getMap(51.03, -2.95, 51.38, -2.3);
+		service.getMap(SunEvent.SUNRISE, 51.03, -2.95, 51.38, -2.3);
+
+		// Only the points its paths cross to the east: the area's own are already there.
+		assertThat(asked.subList(fetched, asked.size())).isNotEmpty().allSatisfy(point -> assertThat(point[1]).isGreaterThan(-2.3));
+	}
+
+	@Test
+	void aSecondLookAtTheSameAreaIsAnsweredFromTheCache() {
+		service.getMap(SunEvent.SUNSET, 51.03, -2.95, 51.38, -2.3);
+		final int fetched = asked.size();
+
+		final SunsetMapResponse again = service.getMap(SunEvent.SUNSET, 51.03, -2.95, 51.38, -2.3);
 
 		assertThat(asked).hasSize(fetched);
 		assertThat(again.days()).hasSize(3);
@@ -115,18 +149,18 @@ class SunsetMapServiceTest {
 
 	@Test
 	void weatherOlderThanTheCacheAllowsIsFetchedAgain() {
-		service.getMap(51.03, -2.95, 51.38, -2.3);
+		service.getMap(SunEvent.SUNSET, 51.03, -2.95, 51.38, -2.3);
 		final int fetched = asked.size();
 		cache.values().forEach(entity -> entity.setFetchedAt(Instant.now().minus(properties.getMapCacheTtl()).minus(Duration.ofMinutes(1))));
 
-		service.getMap(51.03, -2.95, 51.38, -2.3);
+		service.getMap(SunEvent.SUNSET, 51.03, -2.95, 51.38, -2.3);
 
 		assertThat(asked).hasSize(2 * fetched);
 	}
 
 	@Test
 	void aWiderAreaIsScoredOnACoarserLatticeToStayUnderThePointLimit() {
-		final SunsetMapResponse britain = service.getMap(49.5, -11, 61, 3);
+		final SunsetMapResponse britain = service.getMap(SunEvent.SUNSET, 49.5, -11, 61, 3);
 
 		assertThat(britain.latStep()).isEqualTo(1.0);
 		assertThat(britain.lonStep()).isEqualTo(2.0);
@@ -136,7 +170,7 @@ class SunsetMapServiceTest {
 
 	@Test
 	void anAreaTooWideForEvenTheCoarsestLatticeIsRefusedWithoutFetchingAnything() {
-		assertThatThrownBy(() -> service.getMap(-90, -180, 90, 180))
+		assertThatThrownBy(() -> service.getMap(SunEvent.SUNSET, -90, -180, 90, 180))
 						.isInstanceOfSatisfying(ResponseStatusException.class,
 										e -> assertThat(e.getStatusCode()).isEqualTo(SunsetMapService.AREA_TOO_LARGE));
 		verify(client, never()).getForecasts(anyList(), any(), anyInt());
@@ -160,11 +194,14 @@ class SunsetMapServiceTest {
 
 		final List<Number> days = new ArrayList<>();
 		final List<Number> sunsets = new ArrayList<>();
+		final List<Number> sunrises = new ArrayList<>();
 		for (int day = 0; day < 3; day++) {
 			days.add(MIDNIGHT + day * 24 * HOUR);
 			sunsets.add(MIDNIGHT + day * 24 * HOUR + 16 * HOUR + HOUR / 2);
+			sunrises.add(MIDNIGHT + day * 24 * HOUR + 7 * HOUR + HOUR / 2);
 		}
-		return Map.of("utc_offset_seconds", 0, "hourly", hourly, "daily", Map.of("time", days, "sunset", sunsets));
+		return Map.of("utc_offset_seconds", 0, "hourly", hourly,
+						"daily", Map.of("time", days, "sunset", sunsets, "sunrise", sunrises));
 	}
 
 	private static List<Number> constant(final double value) {

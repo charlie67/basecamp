@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.server.ResponseStatusException;
 import to.charlie.basecamp.configuration.SunsetProperties;
+import to.charlie.basecamp.domain.model.SunEvent;
 import to.charlie.basecamp.domain.model.dto.sunset.SunsetDay;
 import to.charlie.basecamp.domain.model.dto.sunset.SunsetForecastResponse;
 import to.charlie.basecamp.domain.model.dto.sunset.SunsetModelForecast;
@@ -26,10 +27,10 @@ import java.util.Optional;
 import static org.springframework.http.HttpStatus.BAD_GATEWAY;
 
 /**
- * How good the next few sunsets at a point are likely to be, according to each of the
- * configured weather models.
+ * How good the next few sunsets or sunrises at a point are likely to be, according to each of
+ * the configured weather models.
  *
- * <p>The weather is fetched once per grid cell for all the models together and cached; the
+ * <p>The weather is fetched once per grid cell and event for all the models together and cached; the
  * scores are worked out from it on every request.
  */
 @Service
@@ -46,8 +47,8 @@ public class SunsetService {
 	private final SunsetScorer sunsetScorer;
 	private final SunsetProperties sunsetProperties;
 
-	public SunsetForecastResponse getForecast(final double lat, final double lon) {
-		final SunsetCellId cell = SunsetCellId.containing(lat, lon);
+	public SunsetForecastResponse getForecast(final SunEvent event, final double lat, final double lon) {
+		final SunsetCellId cell = SunsetCellId.containing(lat, lon, event);
 		final SunsetWeatherEntity weather = cached(cell).orElseGet(() -> fetch(cell));
 
 		final Map<String, Object> forecast = weather.getForecast();
@@ -58,11 +59,11 @@ public class SunsetService {
 		final List<SunsetModelForecast> models = new ArrayList<>();
 		for (final String model : sunsetProperties.getModels()) {
 			final WeatherSeries local = WeatherSeries.of(forecast, model);
-			final List<Number> sunsets = sunsets(forecast, model);
+			final List<Number> sunsets = times(forecast, event, model);
 			final List<SunsetDay> days = new ArrayList<>();
 
 			for (int day = 0; day < dates.size() && local != null && sunsets != null; day++) {
-				// No sunset at all during polar day or night, which leaves nothing to score.
+				// No sunset or sunrise at all during polar day or night, which leaves nothing to score.
 				final Number sunset = sunsets.get(day);
 				if (sunset == null || sunset.longValue() == 0) {
 					continue;
@@ -74,7 +75,7 @@ public class SunsetService {
 								.toList();
 
 				final LocalDate date = dates.get(day);
-				sunsetScorer.score(date, sunset.longValue(), SunsetGeometry.sunsetAzimuth(cell.lat(), date), local, path, aerosols)
+				sunsetScorer.score(event, date, sunset.longValue(), SunsetGeometry.azimuth(event, cell.lat(), date), local, path, aerosols)
 								.ifPresent(days::add);
 			}
 			models.add(new SunsetModelForecast(model, days));
@@ -93,24 +94,24 @@ public class SunsetService {
 
 	private SunsetWeatherEntity fetch(final SunsetCellId cell) {
 		final List<String> models = sunsetProperties.getModels();
-		log.info("Sunset weather not in cache for cell {},{} - fetching from Open-Meteo", cell.lat(), cell.lon());
+		log.info("{} weather not in cache for cell {},{} - fetching from Open-Meteo", cell.getEvent(), cell.lat(), cell.lon());
 
 		final Map<String, Object> forecast;
 		final List<Map<String, Object>> path;
 		try {
-			forecast = openMeteoApiClient.getForecast(cell.lat(), cell.lon(), models, FORECAST_DAYS);
+			forecast = openMeteoApiClient.getForecast(cell.lat(), cell.lon(), models, FORECAST_DAYS, cell.getEvent().variable());
 
 			// Every day's points go in the one request. The bearing moves a little from day to
 			// day, so each day gets its own.
 			final List<double[]> points = new ArrayList<>();
 			for (final LocalDate date : dates(forecast)) {
-				final double azimuth = SunsetGeometry.sunsetAzimuth(cell.lat(), date);
+				final double azimuth = SunsetGeometry.azimuth(cell.getEvent(), cell.lat(), date);
 				for (final int km : SunsetScorer.PATH_POINTS_KM) {
 					points.add(SunsetGeometry.destination(cell.lat(), cell.lon(), azimuth, km));
 				}
 			}
 			// These come back on UTC days rather than the cell's local ones, so they are asked
-			// for one day more to be sure of covering the last local sunset.
+			// for one day more to be sure of covering the last local day.
 			path = openMeteoApiClient.getCloud(points, models, FORECAST_DAYS + 1);
 		} catch (final RestClientException e) {
 			log.error("Failed to fetch sunset weather for cell {},{}", cell.lat(), cell.lon(), e);
@@ -162,11 +163,15 @@ public class SunsetService {
 						.toList();
 	}
 
-	/** Suffixed with the model when several were asked for and bare for one, like the hourly variables. */
+	/**
+	 * When the sun sets or rises on each of the forecast's days, or null when the forecast was
+	 * not asked for that. Suffixed with the model when several were asked for and bare for one,
+	 * like the hourly variables.
+	 */
 	@SuppressWarnings("unchecked")
-	static List<Number> sunsets(final Map<String, Object> forecast, final String model) {
+	static List<Number> times(final Map<String, Object> forecast, final SunEvent event, final String model) {
 		final Map<String, Object> daily = (Map<String, Object>) forecast.get("daily");
-		final Object perModel = daily.get("sunset_" + model);
-		return (List<Number>) (perModel != null ? perModel : daily.get("sunset"));
+		final Object perModel = daily.get(event.variable() + "_" + model);
+		return (List<Number>) (perModel != null ? perModel : daily.get(event.variable()));
 	}
 }
