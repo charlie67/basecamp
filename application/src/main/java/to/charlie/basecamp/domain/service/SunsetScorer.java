@@ -1,6 +1,7 @@
 package to.charlie.basecamp.domain.service;
 
 import org.springframework.stereotype.Component;
+import to.charlie.basecamp.domain.model.SunEvent;
 import to.charlie.basecamp.domain.model.dto.sunset.SunsetDay;
 import to.charlie.basecamp.domain.model.dto.sunset.SunsetFactors;
 
@@ -10,7 +11,8 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Scores one sunset out of ten from the weather forecast for it.
+ * Scores one sunset or sunrise out of ten from the weather forecast for it. The two are judged
+ * alike: the same sky makes either, lit from the other side.
  *
  * <p>A good sunset needs mid and high cloud overhead to catch the light, and a clear path toward
  * the setting sun for that light to arrive by. Most dull ones fail one of the two, so those
@@ -44,22 +46,23 @@ public class SunsetScorer {
 	/**
 	 * @param path     cloud at each of {@link #PATH_POINTS_KM} toward the sun, nearest first
 	 * @param aerosols null when there is no air quality forecast
-	 * @return empty when the model has nothing at all for this sunset
+	 * @param time     unix seconds of the sunset or sunrise
+	 * @return empty when the model has nothing at all for it
 	 */
-	public Optional<SunsetDay> score(final LocalDate date, final long sunset, final double azimuth,
+	public Optional<SunsetDay> score(final SunEvent event, final LocalDate date, final long time, final double azimuth,
 	                                 final WeatherSeries local, final List<WeatherSeries> path,
 	                                 final WeatherSeries aerosols) {
 
-		final Double high = local.valueAt("cloud_cover_high", sunset);
-		final Double mid = local.valueAt("cloud_cover_mid", sunset);
-		final Double low = local.valueAt("cloud_cover_low", sunset);
-		final Double humidity = local.valueAt("relative_humidity_2m", sunset);
-		final Double visibility = local.valueAt("visibility", sunset);
+		final Double high = local.valueAt("cloud_cover_high", time);
+		final Double mid = local.valueAt("cloud_cover_mid", time);
+		final Double low = local.valueAt("cloud_cover_low", time);
+		final Double humidity = local.valueAt("relative_humidity_2m", time);
+		final Double visibility = local.valueAt("visibility", time);
 		final Double visibilityKm = visibility == null ? null : visibility / 1000;
-		final Double rain = local.valueAt("precipitation", sunset);
-		final Double aerosol = aerosols == null ? null : aerosols.valueAt("aerosol_optical_depth", sunset);
-		final Double pressureNow = local.valueAt("pressure_msl", sunset);
-		final Double pressureBefore = local.valueAt("pressure_msl", sunset - 6 * HOUR);
+		final Double rain = local.valueAt("precipitation", time);
+		final Double aerosol = aerosols == null ? null : aerosols.valueAt("aerosol_optical_depth", time);
+		final Double pressureNow = local.valueAt("pressure_msl", time);
+		final Double pressureBefore = local.valueAt("pressure_msl", time - 6 * HOUR);
 		final Double pressureChange = pressureNow == null || pressureBefore == null ? null : pressureNow - pressureBefore;
 
 		Double canvas = null;
@@ -79,13 +82,13 @@ public class SunsetScorer {
 		double blocked = 0;
 		double blockedWeight = 0;
 		for (int i = 0; i < path.size(); i++) {
-			final Double pathLow = path.get(i).valueAt("cloud_cover_low", sunset);
+			final Double pathLow = path.get(i).valueAt("cloud_cover_low", time);
 			if (pathLow == null) {
 				pathBlocks.add(null);
 				continue;
 			}
 			// Thick mid cloud on the sun's path blocks light too, at half the rate of low.
-			final Double pathMid = path.get(i).valueAt("cloud_cover_mid", sunset);
+			final Double pathMid = path.get(i).valueAt("cloud_cover_mid", time);
 			final double block = Math.max(pathLow, 0.5 * (pathMid == null ? 0 : pathMid));
 			pathBlocks.add(block);
 			blocked += block * PATH_WEIGHTS[i];
@@ -136,9 +139,9 @@ public class SunsetScorer {
 		// The classic clearing-storm sunset: rain has washed the air and the front is moving off,
 		// shown by low cloud breaking up or by pressure rising behind it.
 		double bonus = 0;
-		final double rainBefore = local.totalBetween("precipitation", sunset - 6 * HOUR, sunset - HOUR / 2);
+		final double rainBefore = local.totalBetween("precipitation", time - 6 * HOUR, time - HOUR / 2);
 		if (rainBefore >= 1 && (rain == null || rain < 0.1) && low != null) {
-			final Double lowBefore = local.valueAt("cloud_cover_low", sunset - 3 * HOUR);
+			final Double lowBefore = local.valueAt("cloud_cover_low", time - 3 * HOUR);
 			final boolean cloudBreaking = lowBefore != null && lowBefore - low >= 15;
 			final boolean pressureRising = pressureChange != null && pressureChange >= PRESSURE_RISE_HPA && low < 50;
 			if (cloudBreaking || pressureRising) {
@@ -161,11 +164,11 @@ public class SunsetScorer {
 			reasons.add("hazy or humid air");
 		}
 		if (rainFactor != null && rainFactor < 0.7) {
-			reasons.add("rain at sunset");
+			reasons.add("rain at " + event.variable());
 		}
 
 		return Optional.of(new SunsetDay(
-						date, sunset, azimuth, score, label(score),
+						date, time, azimuth, score, label(score),
 						new SunsetFactors(canvas, localLow, horizon, clarity, rainFactor),
 						bonus, reasons, high, mid, low, pathBlocks,
 						humidity, visibilityKm, aerosol, rain, pressureChange));

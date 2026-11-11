@@ -45,28 +45,30 @@ public class OpenMeteoApiClient {
 	}
 
 	/**
-	 * Everything the score needs at the point itself, plus its sunset times. Times are unix
-	 * seconds, and the days are the point's own local ones.
+	 * Everything the score needs at the point itself, plus one daily variable: its sunset or
+	 * sunrise times. Times are unix seconds, and the days are the point's own local ones.
 	 */
-	public Map<String, Object> getForecast(final double lat, final double lon, final List<String> models, final int days) {
+	public Map<String, Object> getForecast(final double lat, final double lon, final List<String> models, final int days,
+	                                       final String daily) {
 		return restClient.get()
 						.uri(properties.getForecastUrl()
-														+ "?latitude={lat}&longitude={lon}&hourly={hourly}&daily=sunset"
+														+ "?latitude={lat}&longitude={lon}&hourly={hourly}&daily={daily}"
 														+ "&timezone=auto&timeformat=unixtime&forecast_days={days}&models={models}",
-										lat, lon, LOCAL_VARIABLES, days, String.join(",", models))
+										lat, lon, LOCAL_VARIABLES, daily, days, String.join(",", models))
 						.retrieve()
 						.body(ONE_LOCATION);
 	}
 
 	/**
 	 * The same as {@link #getForecast} for one model at many points at once, in the order
-	 * given. Each point's days are its own local ones.
+	 * given, with both the sunset and the sunrise times: the weather is the same for either,
+	 * so one answer serves both. Each point's days are its own local ones.
 	 */
 	@SuppressWarnings("unchecked")
 	public List<Map<String, Object>> getForecasts(final List<double[]> points, final String model, final int days) {
 		final Object body = restClient.get()
 						.uri(properties.getForecastUrl()
-														+ "?latitude={lats}&longitude={lons}&hourly={hourly}&daily=sunset"
+														+ "?latitude={lats}&longitude={lons}&hourly={hourly}&daily=sunset,sunrise"
 														+ "&timezone=auto&timeformat=unixtime&forecast_days={days}&models={model}",
 										coordinates(points, point -> point[0]), coordinates(points, point -> point[1]),
 										LOCAL_VARIABLES, days, model)

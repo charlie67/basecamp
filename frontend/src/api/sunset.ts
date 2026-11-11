@@ -1,6 +1,10 @@
 import { getAccessToken } from '../auth/token.ts';
 import { appConfig } from '../config.ts';
 
+// Which end of the day a forecast is for. The two are scored alike, and most of
+// what is here is named for the sunset, which came first.
+export type SunEvent = 'sunset' | 'sunrise';
+
 export type SunsetLabel = 'Excellent' | 'Good' | 'Fair' | 'Poor' | 'Dull';
 
 // The parts a score is made from, each 0–1. One is null when the model had
@@ -15,14 +19,14 @@ export interface SunsetFactors {
 
 export type SunsetFactor = keyof SunsetFactors;
 
-// One weather model's score for one sunset, with the weather behind it.
+// One weather model's score for one sunset or sunrise, with the weather behind it.
 export interface SunsetDay {
   // The local day, yyyy-mm-dd. This is what lines the same sunset up across
   // models, as each places the sunset itself a few seconds differently.
   date: string;
-  // Unix seconds.
-  sunset: number;
-  // Compass bearing of the setting sun, degrees from north.
+  // Unix seconds of the sunset or sunrise.
+  time: number;
+  // Compass bearing of the sun as it sets or rises, degrees from north.
   azimuth: number;
   // 0–10.
   score: number;
@@ -70,13 +74,18 @@ export interface SunsetForecast {
 }
 
 /**
- * How good the next few sunsets at a point are likely to be, scored separately
- * against each weather model the backend is configured with.
+ * How good the next few sunsets or sunrises at a point are likely to be, scored
+ * separately against each weather model the backend is configured with.
  */
-export async function fetchSunsetForecast(lat: number, lon: number, signal?: AbortSignal): Promise<SunsetForecast> {
+export async function fetchSunsetForecast(
+  event: SunEvent,
+  lat: number,
+  lon: number,
+  signal?: AbortSignal,
+): Promise<SunsetForecast> {
   const params = new URLSearchParams({ lat: String(lat), lon: String(lon) });
   const token = getAccessToken();
-  const response = await fetch(`${appConfig.apiBase}/sunset?${params}`, {
+  const response = await fetch(`${appConfig.apiBase}/${event}?${params}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     signal,
   });
@@ -87,21 +96,21 @@ export async function fetchSunsetForecast(lat: number, lon: number, signal?: Abo
     throw new Error('The weather forecast is unavailable right now.');
   }
   if (!response.ok) {
-    throw new Error(`Failed to load sunset forecast (${response.status})`);
+    throw new Error(`Failed to load ${event} forecast (${response.status})`);
   }
 
   return response.json();
 }
 
-// One evening's scores across the map.
+// One day's sunset or sunrise scored across the map.
 export interface SunsetMapDay {
   // The local day at the middle of the map, yyyy-mm-dd.
   date: string;
-  // Unix seconds of the sunset there, and that point's offset from UTC.
-  sunset: number;
+  // Unix seconds of the sunset or sunrise there, and that point's offset from UTC.
+  time: number;
   utc_offset_seconds: number;
   // 0–10 for every lattice point, row by row from the south-west corner. Null
-  // where there is no sunset or no weather to score.
+  // where the sun does not set or rise, or there is no weather to score.
   scores: (number | null)[];
 }
 
@@ -140,10 +149,10 @@ export class AreaTooLargeError extends Error {}
 export class RateLimitedError extends Error {}
 
 /**
- * Sunset scores across a whole area, for colouring the map with. The backend
- * picks how finely to score it from how much ground it covers.
+ * Sunset or sunrise scores across a whole area, for colouring the map with. The
+ * backend picks how finely to score it from how much ground it covers.
  */
-export async function fetchSunsetMap(area: SunsetMapArea, signal?: AbortSignal): Promise<SunsetMap> {
+export async function fetchSunsetMap(event: SunEvent, area: SunsetMapArea, signal?: AbortSignal): Promise<SunsetMap> {
   const params = new URLSearchParams({
     south: String(area.south),
     west: String(area.west),
@@ -151,7 +160,7 @@ export async function fetchSunsetMap(area: SunsetMapArea, signal?: AbortSignal):
     east: String(area.east),
   });
   const token = getAccessToken();
-  const response = await fetch(`${appConfig.apiBase}/sunset/map?${params}`, {
+  const response = await fetch(`${appConfig.apiBase}/${event}/map?${params}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     signal,
   });
@@ -159,7 +168,7 @@ export async function fetchSunsetMap(area: SunsetMapArea, signal?: AbortSignal):
     throw new Error('Your session expired — reload the page to sign in again.');
   }
   if (response.status === 422) {
-    throw new AreaTooLargeError('Zoom in to see sunset quality across the map.');
+    throw new AreaTooLargeError(`Zoom in to see ${event} quality across the map.`);
   }
   if (response.status === 429) {
     throw new RateLimitedError('The weather provider is rate limiting. Trying again in a minute.');
@@ -168,7 +177,7 @@ export async function fetchSunsetMap(area: SunsetMapArea, signal?: AbortSignal):
     throw new Error('The weather forecast is unavailable right now.');
   }
   if (!response.ok) {
-    throw new Error(`Failed to load the sunset map (${response.status})`);
+    throw new Error(`Failed to load the ${event} map (${response.status})`);
   }
 
   return response.json();

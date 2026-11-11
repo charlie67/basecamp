@@ -1,6 +1,7 @@
 package to.charlie.basecamp.domain.service;
 
 import org.junit.jupiter.api.Test;
+import to.charlie.basecamp.domain.model.SunEvent;
 import to.charlie.basecamp.domain.model.dto.sunset.SunsetDay;
 
 import java.time.LocalDate;
@@ -87,7 +88,7 @@ class SunsetScorerTest {
 		}
 		final List<WeatherSeries> noPath = path(0, 0).stream().map(point -> WeatherSeries.of(Map.of("hourly", Map.of("time", times())), MODEL)).toList();
 
-		assertThat(scorer.score(DATE, SUNSET, 240, WeatherSeries.of(local, MODEL), noPath, null)).isEmpty();
+		assertThat(scorer.score(SunEvent.SUNSET, DATE, SUNSET, 240, WeatherSeries.of(local, MODEL), noPath, null)).isEmpty();
 	}
 
 	@Test
@@ -100,7 +101,7 @@ class SunsetScorerTest {
 	}
 
 	private SunsetDay score(final Map<String, Object> local, final List<WeatherSeries> path) {
-		return scorer.score(DATE, SUNSET, 240, WeatherSeries.of(local, MODEL), path, null).orElseThrow();
+		return scorer.score(SunEvent.SUNSET, DATE, SUNSET, 240, WeatherSeries.of(local, MODEL), path, null).orElseThrow();
 	}
 
 	private static List<WeatherSeries> clearPath() {

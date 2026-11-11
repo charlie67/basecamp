@@ -17,7 +17,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The weather last fetched for one grid cell, as Open-Meteo returned it.
+ * The weather last fetched for the sunset or the sunrise at one grid cell, as Open-Meteo
+ * returned it.
  *
  * <p>The raw responses are what is cached, not the scores worked out from them: scoring is
  * cheap, and this way a change to the scoring shows up at once rather than after the cache
@@ -42,12 +43,12 @@ public class SunsetWeatherEntity {
 	@Column(name = "models", nullable = false)
 	private String models;
 
-	/** Hourly weather and the sunset times at the cell itself. */
+	/** Hourly weather and the sunset or sunrise times at the cell itself. */
 	@JdbcTypeCode(SqlTypes.JSON)
 	@Column(name = "forecast", nullable = false)
 	private Map<String, Object> forecast;
 
-	/** Cloud at each point along each day's sunset bearing, days in order and nearest first. */
+	/** Cloud at each point along each day's bearing toward the sun, days in order and nearest first. */
 	@JdbcTypeCode(SqlTypes.JSON)
 	@Column(name = "path", nullable = false)
 	private List<Map<String, Object>> path;
