@@ -1,5 +1,6 @@
 package to.charlie.basecamp.domain.service;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -76,6 +77,7 @@ public class SunsetMapService {
 	private final SunsetMapWeatherRepository sunsetMapWeatherRepository;
 	private final SunsetScorer sunsetScorer;
 	private final SunsetProperties sunsetProperties;
+	private final MeterRegistry meterRegistry;
 
 	// One fetch at a time, so two overlapping views do not both pay for the points they share.
 	private final Lock fetchLock = new ReentrantLock();
@@ -262,6 +264,8 @@ public class SunsetMapService {
 							.forEach(cached -> weather.put(cached.getId(), cached));
 
 			final List<SunsetMapPointId> missing = wanted.stream().filter(point -> !weather.containsKey(point)).toList();
+			SunsetService.countCache(meterRegistry, "map", "hit", wanted.size() - missing.size());
+			SunsetService.countCache(meterRegistry, "map", "miss", missing.size());
 			if (missing.isEmpty()) {
 				return;
 			}

@@ -14,6 +14,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import to.charlie.basecamp.domain.model.ProviderEnum;
 import to.charlie.basecamp.domain.service.MapTileService;
 import to.charlie.basecamp.infrastructure.rest.controllers.MapTileController;
@@ -84,6 +85,32 @@ class SecurityConfigTest {
 	@Test
 	void securityFilterChain_whenTileTokenIsInvalid_thenReturnsUnauthorized() throws Exception {
 		mockMvc.perform(get(TILE).param("access_token", "not.a.token")).andExpect(status().isUnauthorized());
+	}
+
+	/** The scraper reaches the backend's own port from the Docker network, so it needs no token. */
+	@Test
+	void securityFilterChain_whenPrometheusScrapedDirectly_thenNeedsNoToken() throws Exception {
+		// The slice has no actuator, so getting past security ends in a 404.
+		mockMvc.perform(get("/actuator/prometheus").with(remoteAddr("172.18.0.1"))).andExpect(status().isNotFound());
+	}
+
+	/** Everything from outside arrives through the container's Caddy, which connects over loopback. */
+	@Test
+	void securityFilterChain_whenPrometheusAskedThroughCaddy_thenReturnsUnauthorized() throws Exception {
+		mockMvc.perform(get("/actuator/prometheus").with(remoteAddr("127.0.0.1"))).andExpect(status().isUnauthorized());
+		mockMvc.perform(get("/actuator/prometheus").with(remoteAddr("::1"))).andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void securityFilterChain_whenOtherEndpointAskedDirectly_thenReturnsUnauthorized() throws Exception {
+		mockMvc.perform(get("/workouts").with(remoteAddr("172.18.0.1"))).andExpect(status().isUnauthorized());
+	}
+
+	private static RequestPostProcessor remoteAddr(final String address) {
+		return request -> {
+			request.setRemoteAddr(address);
+			return request;
+		};
 	}
 
 	/**
