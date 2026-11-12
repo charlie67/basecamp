@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {MapView, type PickedPoint} from './MapPage.tsx';
-import SunsetPanel, {eventTitle, modelName, type SunsetStatus} from '../components/SunsetPanel.tsx';
+import SunsetPanel, {eventTitle, modelName, type OpenDate, type SunsetStatus} from '../components/SunsetPanel.tsx';
 import {
     AreaTooLargeError,
     fetchSunsetForecast,
@@ -120,6 +120,9 @@ function Legend({event, enabled, onToggle, map, status, dayIndex, onDay}: {
 export default function SunsetPage({event}: {event: SunEvent}) {
     const [picked, setPicked] = useState<PickedPoint | null>(null);
     const [status, setStatus] = useState<SunsetStatus>({state: 'loading'});
+    // The day open in the forecast panel, kept here so moving to another point
+    // stays on it rather than going back to the first.
+    const [openDate, setOpenDate] = useState<OpenDate>(undefined);
 
     const [overlay, setOverlay] = useState(() => localStorage.getItem(OVERLAY_STORAGE_KEY) !== 'false');
     const [overlayStatus, setOverlayStatus] = useState<OverlayStatus>({state: 'idle'});
@@ -230,11 +233,11 @@ export default function SunsetPage({event}: {event: SunEvent}) {
             {picked && (
                 <SunsetPanel
                     event={event}
-                    // Keyed by the point, so each new one opens on its first score.
-                    key={`${picked.lat},${picked.lng}`}
                     lat={picked.lat}
                     lng={picked.lng}
                     status={status}
+                    openDate={openDate}
+                    onOpenDate={setOpenDate}
                     onClose={() => setPicked(null)}
                 />
             )}

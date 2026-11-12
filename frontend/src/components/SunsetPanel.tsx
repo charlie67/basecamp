@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment } from 'react';
 import type { SunEvent, SunsetDay, SunsetFactor, SunsetForecast, SunsetLabel } from '../api/sunset.ts';
 
 export type SunsetStatus =
@@ -7,6 +7,13 @@ export type SunsetStatus =
   | { state: 'done'; forecast: SunsetForecast };
 
 const EMPTY = '—';
+
+/**
+ * Which day's comparison is open, by its local date. Undefined until one is
+ * picked by hand, null once they have all been closed. Held by the page rather
+ * than the panel, so it carries over from one point picked on the map to the next.
+ */
+export type OpenDate = string | null | undefined;
 
 const LABEL_COLOR: Record<SunsetLabel, string> = {
   Excellent: 'bg-fuchsia-500 text-white',
@@ -215,12 +222,18 @@ function Comparison({ forecast, event, days }: {
  * per model. Clicking a row opens the comparison of what each model's score for
  * that sunset is made from.
  */
-function ScoreTable({ forecast, event }: { forecast: SunsetForecast; event: SunEvent }) {
+function ScoreTable({ forecast, event, openDate: chosen, onOpenDate }: {
+  forecast: SunsetForecast;
+  event: SunEvent;
+  openDate: OpenDate;
+  onOpenDate: (date: string | null) => void;
+}) {
   // A model can be missing a day the others have, so the rows are the days any
   // of them has, and each cell is looked up by date rather than by position.
   const dates = [...new Set(forecast.models.flatMap((model) => model.days.map((day) => day.date)))].sort();
-  // Opens on the first day, so there is always a worked example on show.
-  const [openDate, setOpenDate] = useState<string | null>(dates[0] ?? null);
+  // Opens on the first day until one is picked, so there is always a worked
+  // example on show, and on that first day too if this point lacks the one picked.
+  const openDate = chosen === null ? null : chosen !== undefined && dates.includes(chosen) ? chosen : (dates[0] ?? null);
 
   return (
     <table className="mt-3 w-full border-separate border-spacing-x-1 border-spacing-y-0.5 text-center text-xs">
@@ -239,7 +252,7 @@ function ScoreTable({ forecast, event }: { forecast: SunsetForecast; event: SunE
           const days = forecast.models.map((model) => model.days.find((day) => day.date === date));
           const first = days.find((day) => day)!;
           const open = openDate === date;
-          const toggle = () => setOpenDate(open ? null : date);
+          const toggle = () => onOpenDate(open ? null : date);
 
           return (
             <Fragment key={date}>
@@ -277,14 +290,19 @@ function ScoreTable({ forecast, event }: { forecast: SunsetForecast; event: SunE
   );
 }
 
-function Forecast({ forecast, event }: { forecast: SunsetForecast; event: SunEvent }) {
+function Forecast({ forecast, event, openDate, onOpenDate }: {
+  forecast: SunsetForecast;
+  event: SunEvent;
+  openDate: OpenDate;
+  onOpenDate: (date: string | null) => void;
+}) {
   if (forecast.models.every((model) => model.days.length === 0)) {
     return <p className="mt-3 text-sm text-slate-400">No {event} here in the next few days.</p>;
   }
 
   return (
     <>
-      <ScoreTable forecast={forecast} event={event}/>
+      <ScoreTable forecast={forecast} event={event} openDate={openDate} onOpenDate={onOpenDate}/>
       <p className="mt-2 text-xs text-slate-500">
         Weather fetched {new Date(forecast.fetched_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
       </p>
@@ -297,11 +315,13 @@ function Forecast({ forecast, event }: { forecast: SunsetForecast; event: SunEve
  * rather than a layer in it, like the workout panel, so the map never intercepts
  * its clicks and a projection switch does not tear it down.
  */
-export default function SunsetPanel({ event, lat, lng, status, onClose }: {
+export default function SunsetPanel({ event, lat, lng, status, openDate, onOpenDate, onClose }: {
   event: SunEvent;
   lat: number;
   lng: number;
   status: SunsetStatus;
+  openDate: OpenDate;
+  onOpenDate: (date: string | null) => void;
   onClose: () => void;
 }) {
   return (
@@ -326,7 +346,7 @@ export default function SunsetPanel({ event, lat, lng, status, onClose }: {
 
       {status.state === 'loading' && <p className="mt-3 text-sm text-slate-400">Loading forecast…</p>}
       {status.state === 'error' && <p className="mt-3 text-sm text-red-400">{status.message}</p>}
-      {status.state === 'done' && <Forecast forecast={status.forecast} event={event}/>}
+      {status.state === 'done' && <Forecast forecast={status.forecast} event={event} openDate={openDate} onOpenDate={onOpenDate}/>}
     </div>
   );
 }
