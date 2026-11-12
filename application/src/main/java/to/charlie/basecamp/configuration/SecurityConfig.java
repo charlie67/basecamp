@@ -18,6 +18,7 @@ import org.springframework.security.web.servlet.util.matcher.PathPatternRequestM
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.client.RestTemplate;
 
+import java.net.InetAddress;
 import java.time.Duration;
 
 @Configuration
@@ -55,6 +56,7 @@ public class SecurityConfig {
 		http
 						.authorizeHttpRequests(auth -> auth
 										.requestMatchers("/actuator/health", "/actuator/info").permitAll()
+										.requestMatchers(directPrometheusScrape()).permitAll()
 										.anyRequest().authenticated())
 						.oauth2ResourceServer(oauth2 -> oauth2
 										.bearerTokenResolver(tileAwareBearerTokenResolver())
@@ -63,6 +65,28 @@ public class SecurityConfig {
 						.csrf(AbstractHttpConfigurer::disable);
 
 		return http.build();
+	}
+
+	/**
+	 * The metrics endpoint, but only when asked for directly rather than through the Caddy in
+	 * front of the backend in the container. Everything from outside comes through that Caddy,
+	 * which connects over loopback, so this admits the scraper on the Docker network (which
+	 * reaches the backend's own port) and nothing from the internet. The Caddyfile refuses the
+	 * path too; this holds even if that rule is ever lost. It relies on the remote address being
+	 * the socket's own, so turning on {@code server.forward-headers-strategy} would undo it.
+	 */
+	private static RequestMatcher directPrometheusScrape() {
+		final RequestMatcher prometheus = PathPatternRequestMatcher.pathPattern(HttpMethod.GET, "/actuator/prometheus");
+		return request -> prometheus.matches(request) && !isLoopback(request.getRemoteAddr());
+	}
+
+	private static boolean isLoopback(final String address) {
+		try {
+			return InetAddress.ofLiteral(address).isLoopbackAddress();
+		} catch (final IllegalArgumentException e) {
+			// Not an IP literal, so nothing to vouch for it: treated as if it came through Caddy.
+			return true;
+		}
 	}
 
 	/**

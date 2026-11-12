@@ -1,5 +1,6 @@
 package to.charlie.basecamp.domain.service;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -46,10 +47,14 @@ public class SunsetService {
 	private final SunsetWeatherRepository sunsetWeatherRepository;
 	private final SunsetScorer sunsetScorer;
 	private final SunsetProperties sunsetProperties;
+	private final MeterRegistry meterRegistry;
 
 	public SunsetForecastResponse getForecast(final SunEvent event, final double lat, final double lon) {
 		final SunsetCellId cell = SunsetCellId.containing(lat, lon, event);
-		final SunsetWeatherEntity weather = cached(cell).orElseGet(() -> fetch(cell));
+		final Optional<SunsetWeatherEntity> cached = cached(cell);
+		countCache(meterRegistry, "point", "hit", cached.isPresent() ? 1 : 0);
+		countCache(meterRegistry, "point", "miss", cached.isPresent() ? 0 : 1);
+		final SunsetWeatherEntity weather = cached.orElseGet(() -> fetch(cell));
 
 		final Map<String, Object> forecast = weather.getForecast();
 		final int utcOffsetSeconds = ((Number) forecast.get("utc_offset_seconds")).intValue();
@@ -83,6 +88,14 @@ public class SunsetService {
 
 		return new SunsetForecastResponse(
 						cell.lat(), cell.lon(), utcOffsetSeconds, weather.getFetchedAt(), SunsetScorer.PATH_POINTS_KM, models);
+	}
+
+	/**
+	 * Lookups of the weather cached from Open-Meteo, by whether it was there and fresh. Each
+	 * one is a cell for a single point's forecast, or a lattice point for the map.
+	 */
+	static void countCache(final MeterRegistry meterRegistry, final String cache, final String result, final int count) {
+		meterRegistry.counter("basecamp.sunset.weather.cache", "cache", cache, "result", result).increment(count);
 	}
 
 	private Optional<SunsetWeatherEntity> cached(final SunsetCellId cell) {

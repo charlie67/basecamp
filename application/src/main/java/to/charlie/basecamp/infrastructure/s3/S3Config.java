@@ -1,5 +1,6 @@
 package to.charlie.basecamp.infrastructure.s3;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -14,8 +15,9 @@ import java.net.URI;
 public class S3Config {
 
 	@Bean
-	public S3Client s3Client(final S3Properties s3Properties) {
+	public S3Client s3Client(final S3Properties s3Properties, final MeterRegistry meterRegistry) {
 		final var builder = S3Client.builder()
+						.overrideConfiguration(config -> config.addExecutionInterceptor(new S3MetricsInterceptor(meterRegistry)))
 						.region(Region.of(s3Properties.getRegion()))
 						.credentialsProvider(StaticCredentialsProvider.create(
 										AwsBasicCredentials.create(

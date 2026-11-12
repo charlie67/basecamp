@@ -1,6 +1,7 @@
 # Caddy fronts the whole app inside the container.
 #   /api/*  -> Spring Boot backend on localhost:8080 (with the /api prefix stripped,
 #             matching the Vite dev proxy so the backend sees /workouts, not /api/workouts)
+#   /api/actuator/prometheus -> refused; scraped on :8080 directly
 #   /*      -> the static React build, with SPA history fallback to index.html
 {
 	admin off
@@ -10,6 +11,12 @@
 
 :80 {
 	encode gzip zstd
+
+	# Metrics are for the scraper on the Docker network, which reaches the backend on :8080
+	# directly. Never serve them to the internet through here.
+	handle /api/actuator/prometheus* {
+		respond 404
+	}
 
 	# API traffic -> backend. strip_prefix removes the leading /api segment.
 	handle /api/* {

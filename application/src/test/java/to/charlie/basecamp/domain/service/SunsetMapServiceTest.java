@@ -1,5 +1,6 @@
 package to.charlie.basecamp.domain.service;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
@@ -43,7 +44,7 @@ class SunsetMapServiceTest {
 	private final OpenMeteoApiClient client = mock(OpenMeteoApiClient.class);
 	private final SunsetMapWeatherRepository repository = mock(SunsetMapWeatherRepository.class);
 	private final SunsetProperties properties = new SunsetProperties();
-	private final SunsetMapService service = new SunsetMapService(client, repository, new SunsetScorer(), properties);
+	private final SunsetMapService service = new SunsetMapService(client, repository, new SunsetScorer(), properties, new SimpleMeterRegistry());
 
 	// What the repository holds, and every point Open-Meteo has been asked for.
 	private final Map<SunsetMapPointId, SunsetMapWeatherEntity> cache = new HashMap<>();
