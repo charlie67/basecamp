@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { searchWorkouts, type MapBounds, type Workout } from '../api/workouts.ts';
-import { endOfDayIso, startOfDayIso } from '../lib/format.ts';
+import { earliestStartOfDayIso, latestEndOfDayIso, onLocalDay } from '../lib/timeZone.ts';
 
 export interface DateFilters {
   // Both yyyy-mm-dd, as produced by <input type="date">. Either side may be
@@ -138,13 +138,18 @@ export const useWorkoutStore = create<WorkoutState>((set, get) => {
       set({ loading: true, error: null });
 
       try {
-        const workouts = await searchWorkouts(
+        // The window asked for is widened to cover the picked days in every zone;
+        // each hike is then held to the days as they were where it happened.
+        const candidates = await searchWorkouts(
           {
-            from: startOfDayIso(filters.from),
-            to: endOfDayIso(filters.to),
+            from: earliestStartOfDayIso(filters.from),
+            to: latestEndOfDayIso(filters.to),
             bounds: scope === 'map' ? bounds : null,
           },
           controller.signal,
+        );
+        const workouts = candidates.filter((workout) =>
+          onLocalDay(workout, filters.from, filters.to),
         );
 
         // A filter changed while this search was running; its results describe a

@@ -70,8 +70,9 @@ export interface MapBounds {
   max_lon: number;
 }
 
-// from/to are ISO-8601 instants: the frontend resolves the chosen calendar days
-// to absolute times in the viewer's zone so the backend never has to guess one.
+// from/to are ISO-8601 instants. The picked calendar days mean the day where
+// each hike happened, so the store asks for a window wide enough to hold them in
+// any zone and narrows the result itself (see lib/timeZone.ts).
 export interface WorkoutQuery {
   from?: string | null;
   to?: string | null;
