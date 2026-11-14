@@ -2,6 +2,7 @@ package to.charlie.basecamp.domain.model.mapper;
 
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
+import org.mapstruct.Named;
 import to.charlie.basecamp.domain.model.dto.workout.CreateWorkoutRequest;
 import to.charlie.basecamp.domain.model.dto.workout.RoutePoint;
 import to.charlie.basecamp.domain.model.dto.workout.StatisticSummary;
@@ -11,6 +12,8 @@ import to.charlie.basecamp.domain.model.entity.WorkoutEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutEventEntity;
 import to.charlie.basecamp.domain.model.entity.WorkoutStatisticEntity;
 
+import java.time.DateTimeException;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -22,6 +25,8 @@ import java.util.UUID;
  */
 @Mapper(componentModel = "spring")
 public interface WorkoutMapper {
+
+	String HK_TIME_ZONE = "HKTimeZone";
 
 	@Mapping(target = "id", ignore = true)
 	@Mapping(target = "trackStatus", ignore = true)
@@ -50,6 +55,7 @@ public interface WorkoutMapper {
 	 */
 	@Mapping(target = "statistics", source = "statistics")
 	@Mapping(target = "routePoints", source = "routePoints")
+	@Mapping(target = "timeZone", source = "workout.metadata", qualifiedByName = "timeZone")
 	WorkoutSummaryResponse toSummaryResponse(WorkoutEntity workout,
 																					 Map<String, StatisticSummary> statistics,
 																					 List<RoutePoint> routePoints);
@@ -60,6 +66,23 @@ public interface WorkoutMapper {
 	@Mapping(target = "startAt", source = "start")
 	@Mapping(target = "endAt", source = "end")
 	WorkoutEventEntity toEventEntity(WorkoutEvent event);
+
+	/**
+	 * The zone the workout was recorded in, from HealthKit's {@code HKTimeZone} metadata key (an
+	 * IANA name such as {@code America/Los_Angeles}). Anything that isn't a zone Java recognises
+	 * maps to null, so clients fall back rather than choke on a bad value.
+	 */
+	@Named("timeZone")
+	default String toTimeZone(final Map<String, Object> metadata) {
+		if (metadata == null || !(metadata.get(HK_TIME_ZONE) instanceof String zone)) {
+			return null;
+		}
+		try {
+			return ZoneId.of(zone).getId();
+		} catch (DateTimeException e) {
+			return null;
+		}
+	}
 
 	default UUID toUuid(final String value) {
 		return value == null ? null : UUID.fromString(value);

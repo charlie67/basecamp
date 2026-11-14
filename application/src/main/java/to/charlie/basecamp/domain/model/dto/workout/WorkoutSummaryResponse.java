@@ -16,6 +16,9 @@ public record WorkoutSummaryResponse(
         String type,
         Instant startDate,
         Instant endDate,
+        /// IANA zone the workout was recorded in (HealthKit's HKTimeZone), so clients can show
+        /// the clock time where it happened rather than where they are. Null when unknown.
+        String timeZone,
         double durationSeconds,
         Double distanceM,
         Double elevationGainM,

@@ -9,9 +9,12 @@ Feature: Retrieve Workout
     # what keeps the response small.
     When I send an HTTP GET request to "/workouts/search"
     Then "RESPONSE_STATUS" should be "200"
+    # time_zone carries HealthKit's HKTimeZone through, so the UI can show the
+    # walk's times as the clocks read where it happened.
     And the response body should contain the following fields:
-      | $[0].type  | hiking |
-      | $.length() | 1      |
+      | $[0].type      | hiking        |
+      | $[0].time_zone | Europe/Zurich |
+      | $.length()     | 1             |
 
   Scenario: Search narrows the listing to a date range
     When I send an HTTP POST request to "/workouts" with the body from file: "workouts/hiking-summary.json"

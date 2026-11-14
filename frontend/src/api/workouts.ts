@@ -42,6 +42,9 @@ export interface Workout {
   type: string | null;
   start_date: string | null;
   end_date: string | null;
+  // IANA zone the workout was recorded in, so its times read as the clocks there
+  // did. Null when the recording didn't say.
+  time_zone: string | null;
   duration_seconds: number;
   distance_m: number | null;
   elevation_gain_m: number | null;

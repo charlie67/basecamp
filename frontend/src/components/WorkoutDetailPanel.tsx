@@ -10,6 +10,7 @@ import {
   formatPace,
   formatTimeOfDay,
 } from '../lib/format.ts';
+import { workoutTimeZone } from '../lib/timeZone.ts';
 import { useWorkoutStore } from '../store/workoutStore.ts';
 import TrackProfile from './TrackProfile.tsx';
 
@@ -71,6 +72,7 @@ export default function WorkoutDetailPanel({
   onClose: () => void;
 }) {
   const heartRate = workout.statistics?.heart_rate ?? null;
+  const timeZone = workoutTimeZone(workout);
   const heartRateSeries = useHeartRate(workout.id, heartRate !== null);
   // The action alone, so scrubbing does not re-render this panel from its own
   // updates — only the map's marker subscribes to the index itself.
@@ -82,8 +84,9 @@ export default function WorkoutDetailPanel({
         <div>
           <h2 className="font-medium text-slate-100">{title(workout.type)}</h2>
           <p className="text-xs text-slate-400">
-            {formatDate(workout.start_date)} · {formatTimeOfDay(workout.start_date)} →{' '}
-            {formatTimeOfDay(workout.end_date)}
+            {formatDate(workout.start_date, timeZone)} ·{' '}
+            {formatTimeOfDay(workout.start_date, timeZone)} →{' '}
+            {formatTimeOfDay(workout.end_date, timeZone)}
           </p>
         </div>
         <button

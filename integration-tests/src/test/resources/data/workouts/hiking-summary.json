@@ -25,7 +25,8 @@
     "software_version": "10.5"
   },
   "metadata": {
-    "HKIndoorWorkout": false
+    "HKIndoorWorkout": false,
+    "HKTimeZone": "Europe/Zurich"
   },
   "statistics": {
     "heart_rate": {

@@ -70,22 +70,46 @@ export function formatDateTime(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-export function formatDate(value: string | null | undefined): string {
-  if (!value) return EMPTY;
+// `timeZone` is the zone the workout happened in, so a walk in Yosemite reads
+// as midday there rather than as the evening it was back home. Left out (or
+// unknown to the browser), the viewer's own zone is used.
+
+function inZone(
+  value: string,
+  timeZone: string | null | undefined,
+  options: Intl.DateTimeFormatOptions,
+  format: (date: Date, options: Intl.DateTimeFormatOptions) => string,
+): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  if (timeZone) {
+    try {
+      return format(date, { ...options, timeZone });
+    } catch {
+      // RangeError for a zone this browser's tz data doesn't know.
+    }
+  }
+  return format(date, options);
 }
 
-export function formatTimeOfDay(value: string | null | undefined): string {
+export function formatDate(
+  value: string | null | undefined,
+  timeZone?: string | null,
+): string {
   if (!value) return EMPTY;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return inZone(value, timeZone, { day: 'numeric', month: 'short', year: 'numeric' }, (date, options) =>
+    date.toLocaleDateString(undefined, options),
+  );
+}
+
+export function formatTimeOfDay(
+  value: string | null | undefined,
+  timeZone?: string | null,
+): string {
+  if (!value) return EMPTY;
+  return inZone(value, timeZone, { hour: '2-digit', minute: '2-digit' }, (date, options) =>
+    date.toLocaleTimeString(undefined, options),
+  );
 }
 
 // A `<input type="date">` gives a bare yyyy-mm-dd with no zone, but a workout is
