@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { searchWorkouts, type MapBounds, type Workout } from '../api/workouts.ts';
 import { earliestStartOfDayIso, latestEndOfDayIso, onLocalDay } from '../lib/timeZone.ts';
+import { defaultDateFilters } from '../lib/dateRanges.ts';
 
 export interface DateFilters {
   // Both yyyy-mm-dd, as produced by <input type="date">. Either side may be
@@ -97,7 +98,7 @@ export const useWorkoutStore = create<WorkoutState>((set, get) => {
     needsLoad: true,
     loading: false,
     error: null,
-    filters: { from: null, to: null },
+    filters: defaultDateFilters(),
     bounds: null,
     scope: 'list',
     generation: 0,

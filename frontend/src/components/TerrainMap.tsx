@@ -8,6 +8,8 @@ import type { Workout } from '../api/workouts.ts';
 import { fieldImage, type ScoreField } from '../lib/scoreField.ts';
 import { trackColor } from '../lib/trackColor.ts';
 import { useWorkoutStore } from '../store/workoutStore.ts';
+import type { Located } from '../store/locationStore.ts';
+import type { FlyTo, MapFocus } from '../pages/MapPage.tsx';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 // MapLibre finds its worker relative to its own module by default, which is not
@@ -61,6 +63,7 @@ const TRACKS_SOURCE = 'tracks';
 const ENDS_SOURCE = 'track-ends';
 const SCRUB_SOURCE = 'scrub';
 const PICK_SOURCE = 'pick';
+const LOCATED_SOURCE = 'located';
 const FIELD_SOURCE = 'score-field';
 const FIELD_LAYER = 'score-field';
 const TRACK_CASING = 'track-casing';
@@ -158,6 +161,18 @@ interface TerrainMapProps {
   // Scores to colour the ground with, draped over the terrain like the base layer.
   field?: ScoreField | null;
   fieldOpacity?: number;
+  // The "you are here" dot, a flight to make there (handed back through
+  // `onFlown` once made), and ground to fit into a strip of the map, all as the
+  // 2D map takes them. Zooms are Leaflet-numbered.
+  located?: Located | null;
+  flyTo?: FlyTo | null;
+  onFlown?: () => void;
+  focus?: MapFocus | null;
+  focusMaxZoom?: number;
+  focusPadding?: number;
+  // On a phone the page's toolbar has the bottom edge, so the compass and zoom
+  // buttons go top-right instead.
+  compactControls?: boolean;
   onMove: (lat: number, lng: number, zoom: number) => void;
   onReady: () => void;
   onTileError: () => void;
@@ -179,6 +194,13 @@ export default function TerrainMap({
   onPick,
   field = null,
   fieldOpacity = 1,
+  located = null,
+  flyTo = null,
+  onFlown,
+  focus = null,
+  focusMaxZoom = 16,
+  focusPadding = 24,
+  compactControls = false,
   onMove,
   onReady,
   onTileError,
@@ -239,6 +261,7 @@ export default function TerrainMap({
           [ENDS_SOURCE]: { type: 'geojson', data: EMPTY },
           [SCRUB_SOURCE]: { type: 'geojson', data: EMPTY },
           [PICK_SOURCE]: { type: 'geojson', data: EMPTY },
+          [LOCATED_SOURCE]: { type: 'geojson', data: EMPTY },
         },
         layers: [
           { id: 'background', type: 'background', paint: { 'background-color': '#020617' } },
@@ -325,6 +348,25 @@ export default function TerrainMap({
               'circle-stroke-width': 3,
             },
           },
+          // A soft halo rather than the 2D map's accuracy ring: a circle of
+          // metres would have to be drawn as a polygon to lie on the terrain.
+          {
+            id: 'located-halo',
+            type: 'circle',
+            source: LOCATED_SOURCE,
+            paint: { 'circle-radius': 16, 'circle-color': '#38bdf8', 'circle-opacity': 0.25 },
+          },
+          {
+            id: 'located',
+            type: 'circle',
+            source: LOCATED_SOURCE,
+            paint: {
+              'circle-radius': 7,
+              'circle-color': '#0ea5e9',
+              'circle-stroke-color': '#ffffff',
+              'circle-stroke-width': 3,
+            },
+          },
         ],
         terrain: { source: 'terrain', exaggeration: TERRAIN_EXAGGERATION },
         sky: {
@@ -339,8 +381,9 @@ export default function TerrainMap({
     });
 
     // Bottom-right, as the 2D map's zoom control is: the other corners are taken
-    // by the filter bar, layer picker and loading indicator.
-    instance.addControl(new NavigationControl({ visualizePitch: true }), 'bottom-right');
+    // by the filter bar, layer picker and loading indicator. A phone has its
+    // toolbar along the bottom and nothing top-right, so they swap there.
+    instance.addControl(new NavigationControl({ visualizePitch: true }), compactControls ? 'top-right' : 'bottom-right');
     instance.addControl(new AttributionControl({ compact: true }), 'bottom-left');
 
     // MapLibre's bounds are always WGS84, so they go to the search as they are.
@@ -440,6 +483,45 @@ export default function TerrainMap({
       .getSource<GeoJSONSource>(PICK_SOURCE)
       ?.setData(picked ? { type: 'FeatureCollection', features: [point(picked.lng, picked.lat)] } : EMPTY);
   }, [map, picked]);
+
+  useEffect(() => {
+    if (!map) return;
+    map
+      .getSource<GeoJSONSource>(LOCATED_SOURCE)
+      ?.setData(located ? { type: 'FeatureCollection', features: [point(located.lng, located.lat)] } : EMPTY);
+  }, [map, located]);
+
+  // Only ever zooms in to get there, as on the 2D map, and keeps the tilt.
+  useEffect(() => {
+    if (!map || !flyTo) return;
+    map.flyTo({
+      center: [flyTo.lng, flyTo.lat],
+      zoom: Math.max(map.getZoom(), flyTo.zoom - LEAFLET_ZOOM_OFFSET),
+    });
+    onFlown?.();
+  }, [map, flyTo, onFlown]);
+
+  useEffect(() => {
+    if (!map || !focus) return;
+    const height = map.getContainer().clientHeight;
+    map.fitBounds(
+      [
+        [focus.west, focus.south],
+        [focus.east, focus.north],
+      ],
+      {
+        padding: {
+          top: focus.top + focusPadding,
+          bottom: Math.max(height - (focus.top + focus.height), 0) + focusPadding,
+          left: focusPadding,
+          right: focusPadding,
+        },
+        maxZoom: focusMaxZoom - LEAFLET_ZOOM_OFFSET,
+        // Keeps the tilt: fitBounds would otherwise look straight down.
+        pitch: map.getPitch(),
+      },
+    );
+  }, [map, focus, focusMaxZoom, focusPadding]);
 
   // Over the base layer and its shading, under the tracks and markers. The image
   // is swapped in place when the scores change, as a new one arrives on every pan.

@@ -117,7 +117,12 @@ class SunsetMapServiceTest {
 
 	@Test
 	void cloudToTheEastLowersTheSunriseAndLeavesTheSunsetAlone() {
-		lowCloudAtLon = lon -> lon >= 0 ? 100 : 0;
+		// From just east of the area on. The sunrise bears anywhere from about 50 to 130 degrees
+		// over a year at this latitude, so its far path points land past here in every season;
+		// cloud only from the meridian on missed most of them around midwinter, when the sun
+		// rises well to the south-east. The sunset paths all head west, and the lattice they are
+		// read from never reaches further east than 2 degrees west.
+		lowCloudAtLon = lon -> lon >= -1.5 ? 100 : 0;
 
 		final SunsetMapResponse sunrise = service.getMap(SunEvent.SUNRISE, 51.03, -2.95, 51.38, -2.3);
 		final SunsetMapResponse sunset = service.getMap(SunEvent.SUNSET, 51.03, -2.95, 51.38, -2.3);

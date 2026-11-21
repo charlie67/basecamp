@@ -24,7 +24,7 @@ const HEART_RATE_METRIC = 'heart_rate';
  * summary's aggregate is the signal for whether to ask at all: no heart rate
  * statistic means the walk recorded none, so there is nothing to go and get.
  */
-function useHeartRate(workoutId: string, expected: boolean): MetricSample[] | null {
+export function useHeartRate(workoutId: string, expected: boolean): MetricSample[] | null {
   const [samples, setSamples] = useState<MetricSample[] | null>(null);
 
   useEffect(() => {
@@ -54,7 +54,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function title(type: string | null): string {
+export function workoutTitle(type: string | null): string {
   if (!type) return 'Workout';
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
@@ -82,7 +82,7 @@ export default function WorkoutDetailPanel({
     <div className="absolute bottom-3 left-3 z-[1000] w-72 max-w-[calc(100%-1.5rem)] rounded-lg border border-slate-700 bg-slate-900/90 p-4 shadow-lg backdrop-blur">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h2 className="font-medium text-slate-100">{title(workout.type)}</h2>
+          <h2 className="font-medium text-slate-100">{workoutTitle(workout.type)}</h2>
           <p className="text-xs text-slate-400">
             {formatDate(workout.start_date, timeZone)} ·{' '}
             {formatTimeOfDay(workout.start_date, timeZone)} →{' '}
