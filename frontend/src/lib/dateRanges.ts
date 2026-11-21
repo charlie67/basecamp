@@ -117,6 +117,26 @@ export const DATE_RANGE_PRESETS: DateRangePreset[] = [
 /** The id for an open-ended range — no preset, and nothing to clear. */
 export const ALL_TIME = 'all';
 
+/** The range the map opens on: recent walks, rather than every one ever recorded. */
+export const DEFAULT_PRESET_ID = 'last-30-days';
+
+export function defaultDateFilters(): DateFilters {
+  return DATE_RANGE_PRESETS.find((preset) => preset.id === DEFAULT_PRESET_ID)!.range();
+}
+
+/** What the range is called, for a control too small for the menu and both dates. */
+export function rangeLabel(filters: DateFilters): string {
+  const preset = matchPreset(filters);
+  if (preset === ALL_TIME) return 'All time';
+  const named = DATE_RANGE_PRESETS.find((option) => option.id === preset);
+  if (named) return named.label;
+  const short = (day: string) =>
+    new Date(`${day}T00:00:00Z`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  if (filters.from && filters.to) return `${short(filters.from)} – ${short(filters.to)}`;
+  if (filters.from) return `From ${short(filters.from)}`;
+  return `Until ${short(filters.to!)}`;
+}
+
 /** What the current filters were most likely picked from, for the range menu. */
 export function matchPreset(filters: DateFilters): string {
   if (filters.from === null && filters.to === null) return ALL_TIME;

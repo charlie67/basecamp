@@ -1,6 +1,9 @@
-import {useCallback, useEffect, useMemo, useState} from 'react';
-import {MapView, type PickedPoint} from './MapPage.tsx';
+import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
+import {ABOVE_TOOLBAR, MapView, TOOLBAR_BUTTON, type PickedPoint} from './MapPage.tsx';
 import SunsetPanel, {eventTitle, modelName, type OpenDate, type SunsetStatus} from '../components/SunsetPanel.tsx';
+import ForecastPage, {ForecastCallout} from '../components/ForecastPage.tsx';
+import {SpinnerIcon, SunriseIcon, SunsetIcon} from '../components/icons.tsx';
+import {useIsMobile} from '../lib/useIsMobile.ts';
 import {
     AreaTooLargeError,
     fetchSunsetForecast,
@@ -111,6 +114,110 @@ function Legend({event, enabled, onToggle, map, status, dayIndex, onDay}: {
     );
 }
 
+// The phone toolbar has room for a word per day, so the days after tomorrow go
+// by their short weekday.
+function shortDayName(day: SunsetMapDay, index: number): string {
+    if (index === 0) return 'Today';
+    return new Date(`${day.date}T00:00:00Z`).toLocaleDateString(undefined, {weekday: 'short', timeZone: 'UTC'});
+}
+
+const GRADIENT_LABELS = (
+    <span className="mt-1 flex justify-between text-[11px] text-slate-400">
+        <span>Dull</span>
+        <span>Fair</span>
+        <span>Excellent</span>
+    </span>
+);
+
+/**
+ * The phone's legend: just what the colours mean and how the scores are doing,
+ * as the day and the on/off switch live in the toolbar.
+ */
+function MobileLegend({event, enabled, map, status, dayIndex, picked}: {
+    event: SunEvent;
+    enabled: boolean;
+    map: SunsetMap | null;
+    status: OverlayStatus;
+    dayIndex: number;
+    picked: boolean;
+}) {
+    const day = map?.days[dayIndex];
+    let note: ReactNode = null;
+    if (enabled && status.state === 'error') note = <span className="text-red-300">{status.message}</span>;
+    else if (enabled && status.state === 'too-wide') note = <span className="text-amber-300">{status.message}</span>;
+    else if (enabled && map && map.days.length === 0) note = `No ${event} here in the next few days.`;
+    else if (enabled && map && day) {
+        note = `${eventTitle(event)} ${day.time * 1000 < Date.now() ? 'was ' : ''}about ${sunsetTime(day)} · ${modelName(map.model).short}`;
+    }
+
+    return (
+        <div className="pointer-events-none absolute left-3 top-3 z-[1000] w-60 max-w-[calc(100%-1.5rem)] rounded-2xl bg-slate-900/90 px-3 py-2 text-xs text-slate-300 shadow-lg backdrop-blur">
+            {enabled && (
+                <>
+                    <span className="block h-1.5 rounded-full" style={{background: SCORE_GRADIENT_CSS}}/>
+                    {GRADIENT_LABELS}
+                </>
+            )}
+            {note && <p className={enabled ? 'mt-1' : ''}>{note}</p>}
+            {!picked && <p className={enabled || note ? 'mt-1 text-slate-400' : ''}>Tap the map for the forecast there</p>}
+        </div>
+    );
+}
+
+/** The days the overlay can show and its on/off switch, for the start of the phone toolbar. */
+function OverlayControls({event, enabled, onToggle, map, status, dayIndex, onDay}: {
+    event: SunEvent;
+    enabled: boolean;
+    onToggle: () => void;
+    map: SunsetMap | null;
+    status: OverlayStatus;
+    dayIndex: number;
+    onDay: (index: number) => void;
+}) {
+    const Icon = event === 'sunrise' ? SunriseIcon : SunsetIcon;
+
+    return (
+        <>
+            <div role="group" aria-label="Day shown on the map" className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto">
+                {!enabled ? (
+                    <span className="px-3 text-sm text-slate-400">Quality overlay off</span>
+                ) : map && map.days.length > 0 ? (
+                    map.days.map((each, index) => (
+                        <button
+                            key={each.date}
+                            type="button"
+                            onClick={() => onDay(index)}
+                            aria-pressed={index === dayIndex}
+                            className={`h-12 flex-none rounded-full px-3.5 text-sm ${
+                                index === dayIndex
+                                    ? 'bg-slate-700 font-semibold text-slate-100'
+                                    : 'text-slate-300 active:bg-slate-800'
+                            }`}
+                        >
+                            {shortDayName(each, index)}
+                        </button>
+                    ))
+                ) : status.state === 'loading' ? (
+                    <span className="flex items-center gap-2 px-3 text-sm text-slate-400">
+                        <SpinnerIcon className="h-4 w-4 animate-spin"/>
+                        Loading scores…
+                    </span>
+                ) : null}
+            </div>
+            <button
+                type="button"
+                role="switch"
+                aria-checked={enabled}
+                aria-label={`Show ${event} quality on the map`}
+                onClick={onToggle}
+                className={`${TOOLBAR_BUTTON} ${enabled ? 'bg-orange-900 text-orange-300' : ''}`}
+            >
+                <Icon className="h-[22px] w-[22px]"/>
+            </button>
+        </>
+    );
+}
+
 /**
  * The map without the workouts, coloured by how good the sunset is likely to be
  * across it. Clicking anywhere gives the full forecast for that point. The same
@@ -118,7 +225,10 @@ function Legend({event, enabled, onToggle, map, status, dayIndex, onDay}: {
  * is ever shown as the other.
  */
 export default function SunsetPage({event}: {event: SunEvent}) {
+    const mobile = useIsMobile();
     const [picked, setPicked] = useState<PickedPoint | null>(null);
+    // On a phone, whether the picked point's full forecast page is open.
+    const [forecastOpen, setForecastOpen] = useState(false);
     const [status, setStatus] = useState<SunsetStatus>({state: 'loading'});
     // The day open in the forecast panel, kept here so moving to another point
     // stays on it rather than going back to the first.
@@ -218,6 +328,65 @@ export default function SunsetPage({event}: {event: SunEvent}) {
             values: scores,
         };
     }, [overlay, sunsetMap, scores]);
+
+    const closePoint = () => {
+        setPicked(null);
+        setForecastOpen(false);
+    };
+
+    if (mobile) {
+        return (
+            <MapView
+                tracks={false}
+                picked={picked}
+                onPick={onPick}
+                field={field}
+                toolbar={
+                    <OverlayControls
+                        event={event}
+                        enabled={overlay}
+                        onToggle={toggleOverlay}
+                        map={sunsetMap}
+                        status={overlayStatus}
+                        dayIndex={shownDay}
+                        onDay={setDayChoice}
+                    />
+                }
+            >
+                <MobileLegend
+                    event={event}
+                    enabled={overlay}
+                    map={sunsetMap}
+                    status={overlayStatus}
+                    dayIndex={shownDay}
+                    picked={picked !== null}
+                />
+                {picked && (
+                    <ForecastCallout
+                        event={event}
+                        lat={picked.lat}
+                        lng={picked.lng}
+                        status={status}
+                        openDate={openDate}
+                        onOpen={() => setForecastOpen(true)}
+                        onClose={closePoint}
+                        className={ABOVE_TOOLBAR}
+                    />
+                )}
+                {picked && forecastOpen && (
+                    <ForecastPage
+                        event={event}
+                        lat={picked.lat}
+                        lng={picked.lng}
+                        status={status}
+                        openDate={openDate}
+                        onOpenDate={setOpenDate}
+                        onBack={() => setForecastOpen(false)}
+                    />
+                )}
+            </MapView>
+        );
+    }
 
     return (
         <MapView tracks={false} picked={picked} onPick={onPick} field={field}>

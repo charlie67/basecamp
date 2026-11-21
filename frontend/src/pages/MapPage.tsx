@@ -2,14 +2,20 @@ import {lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode
 import proj4 from 'proj4';
 import 'proj4leaflet';
 import L from 'leaflet';
-import {MapContainer, TileLayer, Pane, Polyline, CircleMarker, ZoomControl, useMap, useMapEvent} from 'react-leaflet';
+import {MapContainer, TileLayer, Pane, Polyline, Circle, CircleMarker, ZoomControl, useMap, useMapEvent} from 'react-leaflet';
 import {appConfig} from '../config.ts';
 import {renewIfExpired, useAccessToken} from '../auth/token.ts';
 import type {Workout} from '../api/workouts.ts';
 import {useWorkoutStore} from '../store/workoutStore.ts';
+import {useLocationStore, type Located} from '../store/locationStore.ts';
 import WorkoutDetailPanel from '../components/WorkoutDetailPanel.tsx';
-import WorkoutFilterBar from '../components/WorkoutFilterBar.tsx';
+import WorkoutFilterBar, {DateRangeSheet} from '../components/WorkoutFilterBar.tsx';
+import WorkoutPage, {WORKOUT_PAGE_MAP_TOP, WORKOUT_PAGE_MAP_HEIGHT} from '../components/WorkoutPage.tsx';
+import BottomSheet from '../components/BottomSheet.tsx';
+import {CalendarIcon, CheckIcon, ChevronUpIcon, LayersIcon, LocateIcon, SpinnerIcon} from '../components/icons.tsx';
 import type {DrapedLayer} from '../components/TerrainMap.tsx';
+import {rangeLabel} from '../lib/dateRanges.ts';
+import {useIsMobile} from '../lib/useIsMobile.ts';
 import {paintField, type ScoreField} from '../lib/scoreField.ts';
 import {trackColor} from '../lib/trackColor.ts';
 import 'leaflet/dist/leaflet.css';
@@ -303,7 +309,7 @@ function LayerControl({active, terrain, onSelect, onToggleTerrain}: {
     onToggleTerrain: () => void;
 }) {
     return (
-        <div className="absolute right-3 top-3 z-[1000] rounded-lg border border-slate-700 bg-slate-900/90 p-1 shadow-lg backdrop-blur">
+        <div className="rounded-lg border border-slate-700 bg-slate-900/90 p-1 shadow-lg backdrop-blur">
             {BASE_LAYERS.map((layer) => {
                 const unavailable = terrain && !layer.terrain;
                 return (
@@ -344,6 +350,209 @@ function LayerControl({active, terrain, onSelect, onToggleTerrain}: {
         </div>
     );
 }
+
+/** The layer picker as a phone has it: the same choices, in a sheet with rows big enough to tap. */
+function LayerSheet({active, terrain, onSelect, onToggleTerrain, onClose}: {
+    active: BaseLayer;
+    terrain: boolean;
+    onSelect: (layer: BaseLayer) => void;
+    onToggleTerrain: () => void;
+    onClose: () => void;
+}) {
+    return (
+        <BottomSheet title="Map layers" onClose={onClose}>
+            <div className="mt-2 flex flex-col gap-1">
+                {BASE_LAYERS.map((layer) => {
+                    const unavailable = terrain && !layer.terrain;
+                    const current = layer.name === active.name;
+                    return (
+                        <button
+                            key={layer.name}
+                            type="button"
+                            disabled={unavailable}
+                            aria-pressed={current}
+                            onClick={() => {
+                                onSelect(layer);
+                                onClose();
+                            }}
+                            className={`flex min-h-12 items-center justify-between gap-3 rounded-xl px-4 text-left text-base ${
+                                current
+                                    ? 'bg-slate-800 font-medium text-slate-100'
+                                    : unavailable
+                                        ? 'text-slate-500'
+                                        : 'text-slate-200 active:bg-slate-800'
+                            }`}
+                        >
+                            <span>
+                                {layer.name}
+                                {unavailable && <span className="block text-xs text-slate-400">Not available in 3D</span>}
+                            </span>
+                            {current && <CheckIcon className="h-5 w-5 flex-none text-sky-400"/>}
+                        </button>
+                    );
+                })}
+            </div>
+            <div className="mt-3 border-t border-slate-800 pt-3">
+                <button
+                    type="button"
+                    role="switch"
+                    aria-checked={terrain}
+                    disabled={!active.terrain}
+                    onClick={onToggleTerrain}
+                    className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl px-4 text-left"
+                >
+                    <span>
+                        <span className={`block text-base ${active.terrain ? 'text-slate-100' : 'text-slate-500'}`}>3D terrain</span>
+                        {!active.terrain && (
+                            <span className="block text-xs text-slate-400">{active.name} is only available flat</span>
+                        )}
+                    </span>
+                    <span className={`relative h-7 w-12 flex-none rounded-full ${terrain ? 'bg-sky-600' : 'bg-slate-700'}`}>
+                        <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${terrain ? 'left-6' : 'left-1'}`}/>
+                    </span>
+                </button>
+            </div>
+        </BottomSheet>
+    );
+}
+
+// How close the map comes in on your location, in Web Mercator zoom numbering:
+// close enough to see the paths around you. It never zooms out to get there.
+const LOCATE_ZOOM = 15;
+
+/** Where the map should fly to, zoom in Leaflet's Web Mercator numbering. */
+export interface FlyTo {
+    lat: number;
+    lng: number;
+    zoom: number;
+}
+
+function LocateButton({onLocate, className, label = false}: {
+    onLocate: () => void;
+    className: string;
+    // The desktop button names itself; the phone toolbar's is an icon alone.
+    label?: boolean;
+}) {
+    const locating = useLocationStore((state) => state.locating);
+    const Icon = locating ? SpinnerIcon : LocateIcon;
+
+    return (
+        <button
+            type="button"
+            onClick={onLocate}
+            aria-label="Show my location"
+            title="Show my location"
+            aria-busy={locating}
+            className={className}
+        >
+            <Icon className={`h-5 w-5 flex-none ${locating ? 'animate-spin text-slate-400' : 'text-sky-400'}`}/>
+            {label && <span>My location</span>}
+        </button>
+    );
+}
+
+/** Why the location could not be found, until it times out or is tapped away. */
+function LocateError() {
+    const error = useLocationStore((state) => state.error);
+    const clearError = useLocationStore((state) => state.clearError);
+    if (!error) return null;
+
+    return (
+        <button
+            type="button"
+            onClick={clearError}
+            role="alert"
+            className="absolute inset-x-3 top-3 z-[1300] rounded-2xl border border-amber-700 bg-slate-900/95 px-4 py-3 text-left text-sm text-amber-200 shadow-lg backdrop-blur md:inset-x-auto md:bottom-6 md:left-1/2 md:top-auto md:max-w-sm md:-translate-x-1/2 md:rounded-lg"
+        >
+            {error}
+        </button>
+    );
+}
+
+/**
+ * The "you are here" dot with its accuracy ring, and the flight to it when the
+ * locate button asks. The flight is handed back once made, so a remount for a
+ * projection change does not fly there all over again.
+ */
+function LocateLayer({projection, located, flyTo, onFlown}: {
+    projection: Projection;
+    located: Located | null;
+    flyTo: FlyTo | null;
+    onFlown: () => void;
+}) {
+    const map = useMap();
+
+    useEffect(() => {
+        if (!flyTo) return;
+        const target = convertZoom(flyTo.zoom, 'web', projection, flyTo.lat);
+        map.flyTo([flyTo.lat, flyTo.lng], Math.min(Math.max(map.getZoom(), target), map.getMaxZoom()));
+        onFlown();
+    }, [map, flyTo, onFlown, projection]);
+
+    if (!located) return null;
+    return (
+        <>
+            <Circle
+                center={[located.lat, located.lng]}
+                radius={located.accuracy}
+                interactive={false}
+                pathOptions={{color: '#38bdf8', weight: 1, opacity: 0.6, fillColor: '#38bdf8', fillOpacity: 0.12}}
+            />
+            <CircleMarker
+                center={[located.lat, located.lng]}
+                radius={7}
+                interactive={false}
+                pathOptions={{color: '#ffffff', weight: 3, fillColor: '#0ea5e9', fillOpacity: 1}}
+            />
+        </>
+    );
+}
+
+/**
+ * Ground to bring into view, and the band of the map that is still showing it.
+ * A phone page can cover most of the map and leave a strip uncovered; this fits
+ * the ground into that strip rather than into the whole map, half of it hidden.
+ */
+export interface MapFocus {
+    south: number;
+    west: number;
+    north: number;
+    east: number;
+    // Pixels from the top of the map to the top of the uncovered strip, and how tall it is.
+    top: number;
+    height: number;
+}
+
+// Room left around the ground, so a track does not run right up to the edges.
+const FOCUS_PADDING = 24;
+// No closer than this, Web Mercator numbering, for a walk round the block.
+const FOCUS_MAX_ZOOM = 16;
+
+function FocusLayer({projection, focus}: {projection: Projection; focus: MapFocus | null}) {
+    const map = useMap();
+
+    useEffect(() => {
+        if (!focus) return;
+        const below = Math.max(map.getSize().y - (focus.top + focus.height), 0);
+        map.fitBounds([[focus.south, focus.west], [focus.north, focus.east]], {
+            paddingTopLeft: [FOCUS_PADDING, focus.top + FOCUS_PADDING],
+            paddingBottomRight: [FOCUS_PADDING, below + FOCUS_PADDING],
+            maxZoom: convertZoom(FOCUS_MAX_ZOOM, 'web', projection, (focus.south + focus.north) / 2),
+        });
+    }, [map, focus, projection]);
+
+    return null;
+}
+
+// Classes for the round buttons in the phone toolbar.
+export const TOOLBAR_BUTTON =
+    'flex h-12 w-12 flex-none items-center justify-center rounded-full text-slate-100 active:bg-slate-800 disabled:text-slate-600';
+
+/**
+ * Places something just above the phone toolbar, which runs from 36px to 96px
+ * up from the bottom of the map.
+ */
+export const ABOVE_TOOLBAR = 'bottom-[108px]';
 
 // Leaflet's SVG paths have no click tolerance, so a 3px line is fiddly to hit.
 // Each track therefore also gets a wide fully-transparent stroke underneath it:
@@ -630,14 +839,31 @@ interface MapViewProps {
     // Whatever floats over the map. Rendered outside MapContainer, like the layer
     // control, so the projection remount does not tear it down mid-edit.
     children?: ReactNode;
+    // The page's own controls for the start of the phone toolbar, ahead of the
+    // layer and location buttons every map has. Unused on a desktop, where the
+    // page floats its controls over the map itself.
+    toolbar?: ReactNode;
+    // Ground to fit into view whenever a new one is given.
+    focus?: MapFocus | null;
 }
 
 /**
  * The map itself: the base layers, the 2D and 3D views and the saved viewport,
  * shared by every page that shows one.
  */
-export function MapView({tracks, picked = null, onPick, field = null, children}: MapViewProps) {
+export function MapView({tracks, picked = null, onPick, field = null, children, toolbar, focus = null}: MapViewProps) {
+    const mobile = useIsMobile();
     const [ready, setReady] = useState(false);
+    const [layersOpen, setLayersOpen] = useState(false);
+    const located = useLocationStore((state) => state.located);
+    const locate = useLocationStore((state) => state.locate);
+    // Set by the locate button and cleared by whichever map makes the flight.
+    const [flyTo, setFlyTo] = useState<FlyTo | null>(null);
+    const onFlown = useCallback(() => setFlyTo(null), []);
+    const onLocate = useCallback(async () => {
+        const position = await locate();
+        if (position) setFlyTo({lat: position.lat, lng: position.lng, zoom: LOCATE_ZOOM});
+    }, [locate]);
     const [layer, setLayer] = useState(savedLayer);
     const [terrain, setTerrain] = useState(() => savedTerrain(savedLayer()));
     const [viewport, setViewport] = useState(() => {
@@ -713,7 +939,47 @@ export function MapView({tracks, picked = null, onPick, field = null, children}:
                 </div>
             )}
             {children}
-            <LayerControl active={layer} terrain={terrain} onSelect={selectLayer} onToggleTerrain={toggleTerrain}/>
+            {mobile ? (
+                <>
+                    {/* Clear of the bottom 36px, where the maps keep their attribution. */}
+                    <div
+                        role="toolbar"
+                        aria-label="Map tools"
+                        className="absolute inset-x-3 bottom-9 z-[1000] flex h-15 items-center gap-1 rounded-full border border-slate-700 bg-slate-900/95 p-1.5 shadow-xl backdrop-blur"
+                    >
+                        <div className="flex min-w-0 flex-1 items-center gap-1">{toolbar}</div>
+                        <button
+                            type="button"
+                            aria-label="Map layers"
+                            aria-haspopup="dialog"
+                            onClick={() => setLayersOpen(true)}
+                            className={TOOLBAR_BUTTON}
+                        >
+                            <LayersIcon className="h-[22px] w-[22px]"/>
+                        </button>
+                        <LocateButton onLocate={() => void onLocate()} className={TOOLBAR_BUTTON}/>
+                    </div>
+                    {layersOpen && (
+                        <LayerSheet
+                            active={layer}
+                            terrain={terrain}
+                            onSelect={selectLayer}
+                            onToggleTerrain={toggleTerrain}
+                            onClose={() => setLayersOpen(false)}
+                        />
+                    )}
+                </>
+            ) : (
+                <div className="absolute right-3 top-3 z-[1000] flex flex-col items-stretch gap-2">
+                    <LayerControl active={layer} terrain={terrain} onSelect={selectLayer} onToggleTerrain={toggleTerrain}/>
+                    <LocateButton
+                        label
+                        onLocate={() => void onLocate()}
+                        className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-left text-sm text-slate-300 shadow-lg backdrop-blur hover:text-slate-100"
+                    />
+                </div>
+            )}
+            <LocateError/>
             {terrain && layer.terrain ? (
                 <Suspense>
                     <TerrainMap
@@ -727,6 +993,13 @@ export function MapView({tracks, picked = null, onPick, field = null, children}:
                         onPick={onPick}
                         field={field}
                         fieldOpacity={FIELD_OPACITY}
+                        located={located}
+                        flyTo={flyTo}
+                        onFlown={onFlown}
+                        focus={focus}
+                        focusMaxZoom={FOCUS_MAX_ZOOM}
+                        focusPadding={FOCUS_PADDING}
+                        compactControls={mobile}
                         onMove={onTerrainMove}
                         onReady={onTerrainReady}
                         onTileError={onTileError}
@@ -750,11 +1023,14 @@ export function MapView({tracks, picked = null, onPick, field = null, children}:
                     zoomControl={false}
                     whenReady={() => setReady(true)}
                 >
-                    <ZoomControl position="bottomright"/>
+                    {/* A phone pinches to zoom, and the toolbar has that corner. */}
+                    {!mobile && <ZoomControl position="bottomright"/>}
                     <MapPersistence projection={layer.projection} onMove={onMove}/>
                     {tracks && <WorkoutTracks/>}
                     {onPick && <PickLayer picked={picked} onPick={onPick}/>}
                     {field && <ScoreFieldLayer field={field}/>}
+                    <LocateLayer projection={layer.projection} located={located} flyTo={flyTo} onFlown={onFlown}/>
+                    <FocusLayer projection={layer.projection} focus={focus}/>
                     <TileLayer
                         key={layer.name}
                         url={tileUrl(layer, accessToken)}
@@ -800,6 +1076,20 @@ export default function MapPage() {
         }
     }, [loading, needsLoad, load, generation]);
 
+    const mobile = useIsMobile();
+    const focus = useWorkoutFocus(mobile ? selectedWorkout : null);
+
+    if (mobile) {
+        return (
+            <MapView tracks focus={focus} toolbar={<DateRangeButton/>}>
+                <InViewCount fetching={fetching}/>
+                {selectedWorkout && (
+                    <WorkoutPage workout={selectedWorkout} onBack={() => selectWorkout(null)}/>
+                )}
+            </MapView>
+        );
+    }
+
     return (
         <MapView tracks>
             <WorkoutFilterBar floating/>
@@ -808,5 +1098,74 @@ export default function MapPage() {
                 <WorkoutDetailPanel workout={selectedWorkout} onClose={() => selectWorkout(null)}/>
             )}
         </MapView>
+    );
+}
+
+/**
+ * Where to put the map while a workout's page is open on a phone: its whole
+ * track in the strip of map the page leaves showing. Worked out once per track:
+ * the workout is replaced by an equal copy whenever the results reload, and a
+ * new focus for each would fight the person panning that strip.
+ */
+function useWorkoutFocus(workout: Workout | null): MapFocus | null {
+    const last = useRef<{id: string; focus: MapFocus} | null>(null);
+    if (!workout || (workout.route_points?.length ?? 0) < 2) return null;
+    if (last.current?.id !== workout.id) {
+        const lats = workout.route_points.map((p) => p.lat);
+        const lons = workout.route_points.map((p) => p.lon);
+        last.current = {
+            id: workout.id,
+            focus: {
+                south: Math.min(...lats),
+                north: Math.max(...lats),
+                west: Math.min(...lons),
+                east: Math.max(...lons),
+                top: WORKOUT_PAGE_MAP_TOP,
+                height: WORKOUT_PAGE_MAP_HEIGHT,
+            },
+        };
+    }
+    return last.current.focus;
+}
+
+/** How many workouts the map is showing, or that it is fetching them. */
+function InViewCount({fetching}: {fetching: boolean}) {
+    const totalElements = useWorkoutStore((state) => state.totalElements);
+    return (
+        <div
+            aria-live="polite"
+            className="pointer-events-none absolute left-3 top-3 z-[1000] flex items-center gap-2 rounded-full bg-slate-900/90 px-3 py-2 text-sm text-slate-300 shadow-lg backdrop-blur"
+        >
+            {fetching ? (
+                <>
+                    <SpinnerIcon className="h-4 w-4 animate-spin text-slate-400"/>
+                    Loading tracks…
+                </>
+            ) : (
+                `${totalElements} ${totalElements === 1 ? 'workout' : 'workouts'} in view`
+            )}
+        </div>
+    );
+}
+
+/** The date range in the phone toolbar, opening the sheet that changes it. */
+function DateRangeButton() {
+    const filters = useWorkoutStore((state) => state.filters);
+    const [open, setOpen] = useState(false);
+
+    return (
+        <>
+            <button
+                type="button"
+                aria-haspopup="dialog"
+                onClick={() => setOpen(true)}
+                className="flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full bg-slate-800 px-4 text-left active:bg-slate-700"
+            >
+                <CalendarIcon className="h-5 w-5 flex-none text-slate-400"/>
+                <span className="truncate text-sm font-semibold text-slate-100">{rangeLabel(filters)}</span>
+                <ChevronUpIcon className="ml-auto h-4 w-4 flex-none text-slate-400"/>
+            </button>
+            {open && <DateRangeSheet onClose={() => setOpen(false)}/>}
+        </>
     );
 }

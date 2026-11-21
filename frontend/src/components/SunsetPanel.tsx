@@ -6,7 +6,7 @@ export type SunsetStatus =
   | { state: 'error'; message: string }
   | { state: 'done'; forecast: SunsetForecast };
 
-const EMPTY = '—';
+export const EMPTY = '—';
 
 /**
  * Which day's comparison is open, by its local date. Undefined until one is
@@ -15,9 +15,11 @@ const EMPTY = '—';
  */
 export type OpenDate = string | null | undefined;
 
-const LABEL_COLOR: Record<SunsetLabel, string> = {
-  Excellent: 'bg-fuchsia-500 text-white',
-  Good: 'bg-orange-500 text-white',
+// The text on each is dark or light by whichever reads on that colour: white on
+// orange or on the lighter fuchsia falls short of a legible contrast.
+export const LABEL_COLOR: Record<SunsetLabel, string> = {
+  Excellent: 'bg-fuchsia-600 text-white',
+  Good: 'bg-orange-500 text-slate-950',
   Fair: 'bg-amber-500 text-slate-950',
   Poor: 'bg-slate-600 text-slate-100',
   Dull: 'bg-slate-700 text-slate-300',
@@ -33,17 +35,35 @@ const MODEL_NAMES: Record<string, { short: string; full: string }> = {
   meteofrance_seamless: { short: 'MF', full: 'Météo-France' },
 };
 
-const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+export const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 
 // How far apart two models have to score a factor before it is called out as
 // one they disagree on. The factors run 0–1.
-const DISAGREEMENT = 0.3;
+export const DISAGREEMENT = 0.3;
+
+/**
+ * The label for a score, by the backend's own thresholds, for a figure it did not
+ * label itself, such as the average across the models.
+ */
+export function scoreLabel(score: number): SunsetLabel {
+  const shown = Math.round(score * 10) / 10;
+  if (shown >= 8) return 'Excellent';
+  if (shown >= 6.5) return 'Good';
+  if (shown >= 4.5) return 'Fair';
+  if (shown >= 2.5) return 'Poor';
+  return 'Dull';
+}
+
+/** Which way the sun is, as a compass point. */
+export function compassPoint(azimuth: number): string {
+  return COMPASS[Math.round(azimuth / 45) % 8];
+}
 
 export function modelName(model: string): { short: string; full: string } {
   return MODEL_NAMES[model] ?? { short: model, full: model };
 }
 
-function number(value: number | null, digits: number): string {
+export function number(value: number | null, digits: number): string {
   return value === null ? EMPTY : value.toFixed(digits);
 }
 
@@ -53,21 +73,21 @@ function signed(value: number | null, digits: number): string {
 
 // Shifted by the point's own offset and then read back as UTC, so the times are
 // the ones its clocks will show rather than the browser's.
-function localDate(day: SunsetDay, forecast: SunsetForecast): Date {
+export function localDate(day: SunsetDay, forecast: SunsetForecast): Date {
   return new Date((day.time + forecast.utc_offset_seconds) * 1000);
 }
 
-function formatDay(date: Date): string {
+export function formatDay(date: Date): string {
   return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
-function formatTime(date: Date): string {
+export function formatTime(date: Date): string {
   return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
 }
 
 // One factor of the score, with the weather readings it is worked out from
 // listed under it, so a low factor sits right above the reading that caused it.
-interface FactorGroup {
+export interface FactorGroup {
   factor: SunsetFactor;
   name: string;
   // What a low value of the factor means, for the tooltip.
@@ -80,7 +100,7 @@ export function eventTitle(event: SunEvent): string {
   return event === 'sunrise' ? 'Sunrise' : 'Sunset';
 }
 
-function factorGroups(forecast: SunsetForecast, event: SunEvent): FactorGroup[] {
+export function factorGroups(forecast: SunsetForecast, event: SunEvent): FactorGroup[] {
   const sun = event === 'sunrise' ? 'rising' : 'setting';
   return [
     {
@@ -133,14 +153,14 @@ function factorGroups(forecast: SunsetForecast, event: SunEvent): FactorGroup[] 
 
 // Red and amber for the factors dragging a score down, so the eye lands on the
 // column and row where two models part company.
-function factorColor(value: number | null): string {
+export function factorColor(value: number | null): string {
   if (value === null) return 'text-slate-600';
   if (value < 0.4) return 'text-red-400';
   if (value < 0.7) return 'text-amber-400';
   return 'text-slate-100';
 }
 
-function spread(values: (number | null)[]): number {
+export function spread(values: (number | null)[]): number {
   const present = values.filter((value): value is number => value !== null);
   return present.length < 2 ? 0 : Math.max(...present) - Math.min(...present);
 }
@@ -171,7 +191,7 @@ function Comparison({ forecast, event, days }: {
     <>
       <tr>
         <td colSpan={columns} className="pt-1 text-left text-slate-400">
-          {eventTitle(event)} {formatTime(date)}{passed ? ' (passed)' : ''} toward {COMPASS[Math.round(first.azimuth / 45) % 8]}{' '}
+          {eventTitle(event)} {formatTime(date)}{passed ? ' (passed)' : ''} toward {compassPoint(first.azimuth)}{' '}
           {Math.round(first.azimuth)}°.{' '}
           {disagreements.length > 0
             ? `The models differ most on ${disagreements.map((group) => group.name.toLowerCase()).join(', ')}.`
