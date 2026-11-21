@@ -28,6 +28,20 @@
 			<modules>
 				<module>integration-tests</module>
 			</modules>
+			<!-- The unit tests already run in the Build workflow, so this profile leaves them out
+			     and runs only the integration tests. Only Surefire is told to skip: Failsafe, which
+			     runs the integration tests, has its own setting and is unaffected. -->
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-surefire-plugin</artifactId>
+						<configuration>
+							<skipTests>true</skipTests>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
 		</profile>
 	</profiles>
 
